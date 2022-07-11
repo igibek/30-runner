@@ -765,6 +765,31 @@ namespace GitHub.DistributedTask.WebApi
         /// <summary>
         /// [Preview API]
         /// </summary>
+        /// <param name="status"></param>
+        /// <param name="userState"></param>
+        /// <param name="cancellationToken">The cancellation token to cancel operation.</param>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public virtual Task UpdateRunnerStatusAsync(
+            TaskAgentStatus status,
+            object userState = null,
+            CancellationToken cancellationToken = default)
+        {
+            HttpMethod httpMethod = new HttpMethod("PUT");
+            Guid locationId = new Guid("cf1b6dbd-7ef3-4c9f-b0dc-84b5b643b69d");
+            object routeValues = new { status = status };
+
+            return SendAsync(
+                httpMethod,
+                locationId,
+                routeValues: routeValues,
+                version: new ApiResourceVersion(6.0, 1),
+                userState: userState,
+                cancellationToken: cancellationToken);
+        }
+
+        /// <summary>
+        /// [Preview API]
+        /// </summary>
         /// <param name="poolId"></param>
         /// <param name="agentId"></param>
         /// <param name="currentState"></param>

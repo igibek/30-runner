@@ -52,6 +52,7 @@ namespace GitHub.Runner.Common
 
         // agent update
         Task<TaskAgent> UpdateAgentUpdateStateAsync(int agentPoolId, int agentId, string currentState, string trace);
+        Task UpdateRunnerStatusAsync(TaskAgentStatus status);
     }
 
     public sealed class RunnerServer : RunnerService, IRunnerServer
@@ -345,6 +346,12 @@ namespace GitHub.Runner.Common
         {
             CheckConnection(RunnerConnectionType.Generic);
             return _genericTaskAgentClient.UpdateAgentUpdateStateAsync(agentPoolId, agentId, currentState, trace);
+        }
+
+        public Task UpdateRunnerStatusAsync(TaskAgentStatus status)
+        {
+            CheckConnection(RunnerConnectionType.Generic);
+            return _genericTaskAgentClient.UpdateRunnerStatusAsync(status);
         }
     }
 }

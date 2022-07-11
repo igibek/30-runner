@@ -332,9 +332,13 @@ namespace GitHub.Runner.Listener
 
         private async Task RunAsync(Pipelines.AgentJobRequestMessage message, string orchestrationId, WorkerDispatcher previousJobDispatch, CancellationToken jobRequestCancellationToken, CancellationToken workerCancelTimeoutKillToken)
         {
-            Busy = true;
+            var runnerServer = HostContext.GetService<IRunnerServer>();
+                
             try
             {
+                Busy = true;
+                await runnerServer.UpdateRunnerStatusAsync(TaskAgentStatus.Busy);
+            
                 if (previousJobDispatch != null)
                 {
                     Trace.Verbose($"Make sure the previous job request {previousJobDispatch.JobId} has successfully finished on worker.");
@@ -650,6 +654,7 @@ namespace GitHub.Runner.Listener
             finally
             {
                 Busy = false;
+                await runnerServer.UpdateRunnerStatusAsync(TaskAgentStatus.Online);
             }
         }
 
