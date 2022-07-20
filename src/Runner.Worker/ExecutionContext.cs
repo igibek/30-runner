@@ -238,7 +238,7 @@ namespace GitHub.Runner.Worker
                 return ExpressionValues["job"] as JobContext;
             }
         }
-
+        public TaintContext TaintContext { get; set; }
         public List<string> StepEnvironmentOverrides { get; } = new List<string>();
 
         public override void Initialize(IHostContext hostContext)
@@ -369,7 +369,9 @@ namespace GitHub.Runner.Worker
             child.StepTelemetry.StepId = recordId;
             child.StepTelemetry.Stage = stage.ToString();
             child.StepTelemetry.IsEmbedded = isEmbedded;
-
+            // Setup TaintContext for child ExecutionContext
+            child.TaintContext = new TaintContext(child, TaintContext);
+            child.TaintContext.Initialize(HostContext);
             return child;
         }
 
@@ -675,9 +677,12 @@ namespace GitHub.Runner.Worker
             ArgUtil.NotNull(message.Plan, nameof(message.Plan));
 
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(token);
-
+            
+            // Taint Context
+            TaintContext = new TaintContext(this);
+            TaintContext.Initialize(HostContext);
             Global = new GlobalContext();
-
+            
             // Plan
             Global.Plan = message.Plan;
             Global.Features = PlanUtil.GetFeatures(message.Plan);
