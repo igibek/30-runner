@@ -27,8 +27,9 @@ namespace GitHub.Runner.Worker {
 
         private static Dictionary<Guid, TaintContext> _cachedIds = new Dictionary<Guid, TaintContext>();
 
-        public TaintContext(IExecutionContext executionContext) {
+        public TaintContext(IExecutionContext executionContext, TaintContext parent = null) {
             ExecutionContext = executionContext;
+            _parentTaintContext = parent;
         }
 
         public Guid Id { get; private set; }
@@ -87,7 +88,7 @@ namespace GitHub.Runner.Worker {
         private bool AddInput(string key, string value)
         {
             
-            //Trace.Info("Adding Tainted input into ...");
+            Trace.Info("Adding Tainted input into ...");
             var taintVariable = new TaintVariable(value, IsTainted(value));
             
             // adding input environment variable 
@@ -136,6 +137,7 @@ namespace GitHub.Runner.Worker {
         public bool IsTaintedEnvironment(string value)
         {
             // Used the regex from this thread: https://stackoverflow.com/questions/2821043/allowed-characters-in-linux-environment-variable-names
+            // TODO: what about environment variables in Windows
             Regex envRegex = new Regex(@"\$[a-z_][a-z0-9_]*", RegexOptions.Compiled);
             MatchCollection matchCollection = envRegex.Matches(value);
             TaintVariable taintVariable;
@@ -143,20 +145,14 @@ namespace GitHub.Runner.Worker {
             {
                 var env = match.ToString();
 
-                if (EnvironmentVariables.TryGetValue(env, out taintVariable)) {
-                    if (taintVariable.Tainted) {
-                        return true;
-                    }
-                } else if (Root != null) { 
-                    var root = Root;
-                    while (root != null) {
-                        if (root.EnvironmentVariables.TryGetValue(env, out taintVariable)) {
-                            if (taintVariable.Tainted) {
-                                return true;
-                            }
+                var current = this;
+                while (current != null) {
+                    if (current.EnvironmentVariables.TryGetValue(env, out taintVariable)) {
+                        if (taintVariable.Tainted) {
+                            return true;
                         }
-                        root = root.Root;
                     }
+                    current = current._parentTaintContext;    
                 }
             }
 
@@ -232,7 +228,8 @@ namespace GitHub.Runner.Worker {
             var _invoker = HostContext.CreateService<IProcessInvoker>();
             string inputs = StringUtil.ConvertToJson(Inputs); // convert object into string
             string arguments = String.Format("--inputs={0} --envs={1}", inputs, StringUtil.ConvertToJson(EnvironmentVariables));
-            string workingDirectory = "/";
+            string workingDirectory = HostContext.GetDirectory(WellKnownDirectory.Work);
+            
             var environments = new Dictionary<string, string>();
         
             return await _invoker.ExecuteAsync(workingDirectory, moduleName, arguments,  environments, ExecutionContext.CancellationToken);
