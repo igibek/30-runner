@@ -114,7 +114,7 @@ namespace GitHub.Runner.Worker
         void WriteWebhookPayload();
     }
 
-    public sealed class ExecutionContext : RunnerService, IExecutionContext, ITaintContext
+    public sealed class ExecutionContext : RunnerService, IExecutionContext
     {
         private const int _maxIssueCount = 10;
         private const int _throttlingDelayReportThreshold = 10 * 1000; // Don't report throttling with less than 10 seconds delay
@@ -1102,19 +1102,6 @@ namespace GitHub.Runner.Worker
             }
 
             UpdateGlobalStepsContext();
-        }
-
-        /**
-        * ==============================================================
-        * ITaintContext implementation
-        * ==============================================================
-        */
-        public Dictionary<string, TaintVariable> T_Inputs { get; set; }
-        public Dictionary<string, TaintVariable> T_Outputs { get; set; }
-        public Dictionary<string, TaintVariable> T_EnvironmentVariables { get; set; }
-
-        public bool IsTainted(string value) {
-            return true;
         }
     }
 
