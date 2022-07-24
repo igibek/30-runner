@@ -30,6 +30,10 @@ namespace GitHub.Runner.Worker {
         public TaintContext(IExecutionContext executionContext, TaintContext parent = null) {
             ExecutionContext = executionContext;
             _parentTaintContext = parent;
+            Inputs = new Dictionary<string, TaintVariable>();
+            EnvironmentVariables = new Dictionary<string, TaintVariable>();
+            Outputs = new Dictionary<string, TaintVariable>();
+            Files = new Dictionary<string, string>();
         }
 
         public Guid Id { get; private set; }
@@ -60,6 +64,7 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> Inputs { get; private set; }
 
         public Dictionary<string, TaintVariable> Outputs { get; private set; }
+        public Dictionary<string, string> Files {get; private set; }
 
         private bool AddEnvironmentVariable(string key, string value)
         {
