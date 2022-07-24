@@ -52,7 +52,7 @@ namespace GitHub.Runner.Worker
         DictionaryContextData ExpressionValues { get; }
         IList<IFunctionInfo> ExpressionFunctions { get; }
         JobContext JobContext { get; }
-
+        TaintContext TaintContext { get; }
         // Only job level ExecutionContext has JobSteps
         Queue<IStep> JobSteps { get; }
 
