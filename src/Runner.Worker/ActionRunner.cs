@@ -81,6 +81,9 @@ namespace GitHub.Runner.Worker
             ActionExecutionData handlerData = definition.Data?.Execution;
             ArgUtil.NotNull(handlerData, nameof(handlerData));
 
+            ExecutionContext.TaintContext.AddInputs(Action.Inputs);
+            ExecutionContext.TaintContext.AddEnvironmentVariables(Action.Environment);
+            
             List<JobExtensionRunner> localActionContainerSetupSteps = null;
             // Handle Composite Local Actions
             // Need to download and expand the tree of referenced actions
