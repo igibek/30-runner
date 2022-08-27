@@ -1,11 +1,9 @@
-## Features
-- Added support for a JIT runner config (#1925)
-- Added `ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION` env option to force actions to run on a specific node version (#1913)
 ## Bugs
-- Fixed a bug where container hooks passed in path as a string rather then an array of strings (#1948)
-
+- Avoid key based command injection via Docker command arguments (#2062)
 ## Misc
-- Minor cleanup of error messages when running container hooks (#1949)
+- Added step context name and start/finish time in step telemetry (#2069)
+- Improved error logs when there is a missing 'using' token configuration in the metadata file  (#2052)
+- Added full job name and nested workflow details in log (#2049)
 
 ## Windows x64
 We recommend configuring the runner in a root folder of the Windows drive (e.g. "C:\actions-runner"). This will help avoid issues related to service identity folder permissions and long file path restrictions on Windows.
@@ -32,7 +30,7 @@ curl -O -L https://github.com/actions/runner/releases/download/v<RUNNER_VERSION>
 tar xzf ./actions-runner-osx-x64-<RUNNER_VERSION>.tar.gz
 ```
 
-## [Pre-release] OSX arm64 (Apple silicon)
+## OSX arm64 (Apple silicon)
 
 ``` bash
 # Create a folder
