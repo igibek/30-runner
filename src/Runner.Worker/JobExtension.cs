@@ -492,7 +492,10 @@ namespace GitHub.Runner.Worker
 
                             // Populate env context for each step
                             Trace.Info("Initialize Env context for evaluating job outputs");
+
                             // HACK: jobs outputs are evaluated here. Basically, this where TaintContext must process job outputs
+                            jobContext.TaintContext.AddOutputs(message.JobOutputs);
+
                             var outputs = templateEvaluator.EvaluateJobOutput(message.JobOutputs, context.ExpressionValues, context.ExpressionFunctions);
                             foreach (var output in outputs)
                             {
@@ -510,6 +513,10 @@ namespace GitHub.Runner.Worker
 
                                 context.Output($"Set output '{output.Key}'");
                                 jobContext.JobOutputs[output.Key] = output.Value;
+                                if (jobContext.TaintContext.Outputs[output.Key].Tainted) {
+                                    context.Output($"Detected tainted output '{output.Key}'");
+                                    jobContext.JobOutputs["tainted_"+output.Key] = output.Value;
+                                }
                             }
                         }
                         catch (Exception ex)
