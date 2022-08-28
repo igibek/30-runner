@@ -126,6 +126,27 @@ namespace GitHub.Runner.Worker {
                 }
             }
         }
+        
+        public void AddOutputs(TemplateToken token) {
+            string key = "";
+            bool isKey = true, skip = true;
+            
+            
+            foreach (var input in token.Traverse()) {
+                if (skip) {
+                    skip = false;
+                    continue;
+                }
+
+                if (isKey) {
+                    isKey = false;
+                    key = input.ToString();
+                } else {
+                    isKey = true;
+                    AddOutput(key, input.ToString());
+                }
+            }    
+        }
 
         public bool AddOutput(string key, string value)
         {
@@ -210,7 +231,9 @@ namespace GitHub.Runner.Worker {
         {
             // root TaintContext belongs to Job
             Root.Outputs.TryGetValue(reference, out TaintVariable taintVariable);
-            return taintVariable.Tainted;
+            
+            // checks if taintVariable is null, otherwise it will throw null pointer exception
+            return taintVariable == null ? false : taintVariable.Tainted;
         }
 
         public bool IsTaintedStepOutput(string value)
