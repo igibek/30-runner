@@ -81,7 +81,8 @@ namespace GitHub.Runner.Worker
             ActionExecutionData handlerData = definition.Data?.Execution;
             ArgUtil.NotNull(handlerData, nameof(handlerData));
 
-            ExecutionContext.TaintContext.AddInputs(Action.Inputs);
+            // NOTE: not only inputs but also step outputs must be catched here
+            ExecutionContext.TaintContext.AddInputs(Action.Inputs); 
             ExecutionContext.TaintContext.AddEnvironmentVariables(Action.Environment);
             
             List<JobExtensionRunner> localActionContainerSetupSteps = null;
@@ -218,6 +219,7 @@ namespace GitHub.Runner.Worker
                     validInputs.Add(key);
                     if (!inputs.ContainsKey(key))
                     {
+                        // NOTE: default inputs are evaluated here
                         inputs[key] = manifestManager.EvaluateDefaultInput(ExecutionContext, key, input.Value);
                     }
                 }

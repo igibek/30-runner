@@ -311,7 +311,7 @@ namespace GitHub.Runner.Worker
             {
                 throw new Exception("Required field 'name' is missing in ##[set-output] command.");
             }
-            // HACK: sets the output command
+            // NOTE: sets the output command
             
             context.SetOutput(outputName, command.Data, out var reference);
             context.Debug($"{reference}='{command.Data}'");
