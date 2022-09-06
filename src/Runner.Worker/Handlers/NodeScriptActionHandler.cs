@@ -148,6 +148,9 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.OutputDataReceived += stdoutManager.OnDataReceived;
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
+                // NOTE: execute the TaintModule
+                int moduleExitCode = await ExecutionContext.TaintContext.ExecuteModule(TaintModule.NodeJS);
+
                 // Execute the process. Exit code 0 should always be returned.
                 // A non-zero exit code indicates infrastructural failure.
                 // Task failure should be communicated over STDOUT using ## commands.
@@ -176,7 +179,13 @@ namespace GitHub.Runner.Worker.Handlers
                     ExecutionContext.Debug($"Node Action run completed with exit code {exitCode}");
                     if (exitCode != 0)
                     {
-                        ExecutionContext.Result = TaskResult.Failed;
+
+                        if (ExecutionContext.TaintContext.DependOnSecret) {
+                            ExecutionContext.Result = TaskResult.SucceededWithIssues;
+                        } else {
+                            ExecutionContext.Result = TaskResult.Failed;
+                        }
+                        
                     }
                 }
             }
