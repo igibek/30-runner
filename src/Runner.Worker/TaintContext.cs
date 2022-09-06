@@ -8,22 +8,12 @@ using System.Diagnostics;
 using System.IO;
 using GitHub.Runner.Sdk;
 using GitHub.Runner.Common;
+using GitHub.DistributedTask.Pipelines.ObjectTemplating;
 
 namespace GitHub.Runner.Worker {
 
     public class TaintContext : RunnerService
     {
-        public TaintContext(Guid id, string displayName, IExecutionContext executionContext, bool isEmbedded = false)
-        {
-            Id = id;
-            DisplayName = displayName;
-            ExecutionContext = executionContext;
-            IsEmbedded = isEmbedded;
-            Inputs = new Dictionary<string, TaintVariable>();
-            EnvironmentVariables = new Dictionary<string, TaintVariable>();
-            Outputs = new Dictionary<string, TaintVariable>();
-
-        }
 
         private static Dictionary<Guid, TaintContext> _cachedIds = new Dictionary<Guid, TaintContext>();
 
@@ -58,13 +48,26 @@ namespace GitHub.Runner.Worker {
         }
 
         public bool IsEmbedded {get; private set; }
-        
+        public bool DependOnSecret { get; private set; } = false;
         public Dictionary<string, TaintVariable> EnvironmentVariables { get; private set; }
 
         public Dictionary<string, TaintVariable> Inputs { get; private set; }
 
         public Dictionary<string, TaintVariable> Outputs { get; private set; }
         public Dictionary<string, string> Files {get; private set; }
+        
+        public void AddEnvironmentVariables(TemplateToken token)
+        {
+            if (token == null) return;
+
+            var mapping = token.AssertMapping("taint envs");
+
+            foreach (var pair in mapping) {
+                string key = pair.Key.ToString();
+                string value = pair.Value.ToString();
+                AddEnvironmentVariable(key, value);
+            }
+        }
 
         private bool AddEnvironmentVariable(string key, string value)
         {
@@ -72,29 +75,29 @@ namespace GitHub.Runner.Worker {
             return EnvironmentVariables.TryAdd(key, taintVariable);
         }
 
-        public void AddEnvironmentVariables(TemplateToken token)
+        public void AddInputs(TemplateToken token)
         {
-            string key = "";
-            bool toogle = false;
+            if (token == null) return;
+            
+            // TODO: are you sure that this is MappingToken
+            var mapping = token.AssertMapping("taint inputs");
 
-            foreach (var env in token.Traverse())
-            {    
-                if (toogle) {
-                    AddEnvironmentVariable(key, env.ToString());
-                    toogle = false;
-                } else {
-                    toogle = true;
-                    key = env.ToString();
-                }
+            
+            foreach (var pair in mapping) {
+                // TODO: type of the key and value
+                string key = pair.Key.ToString();
+                string value = pair.Value.ToString();
+                AddInput(key, value);
             }
         }
 
-        // TODO: look for workflow syntax to make sure that we can not pass anything except string
         private bool AddInput(string key, string value)
         {
             
-            Trace.Info("Adding Tainted input into ...");
-            var taintVariable = new TaintVariable(value, IsTainted(value));
+            Trace.Info("TAINTED: Adding input key-value. Key: {0}, Value: {1}", key, value);
+            bool tainted = IsTainted(value);
+            bool secret = IsSecret(value);
+            var taintVariable = new TaintVariable(value, tainted, secret);
             
             // adding input environment variable 
             // for every input runner will create env variable with "$INPUT_FOO" format
@@ -105,47 +108,16 @@ namespace GitHub.Runner.Worker {
             return Inputs.TryAdd(key, taintVariable);
         }
 
-        public void AddInputs(TemplateToken token)
-        {
-            string key = "";
-            bool isKey = true, skip = true;
-            
-            
-            foreach (var input in token.Traverse()) {
-                if (skip) {
-                    skip = false;
-                    continue;
-                }
-
-                if (isKey) {
-                    isKey = false;
-                    key = input.ToString();
-                } else {
-                    isKey = true;
-                    AddInput(key, input.ToString());
-                }
-            }
-        }
         
         public void AddOutputs(TemplateToken token) {
-            string key = "";
-            bool isKey = true, skip = true;
             
-            
-            foreach (var input in token.Traverse()) {
-                if (skip) {
-                    skip = false;
-                    continue;
-                }
+            var mapping = token.AssertMapping("taint outputs");
 
-                if (isKey) {
-                    isKey = false;
-                    key = input.ToString();
-                } else {
-                    isKey = true;
-                    AddOutput(key, input.ToString());
-                }
-            }    
+            foreach (var pair in mapping) {
+                string key = pair.Key.ToString();
+                string value = pair.Value.ToString();
+                AddOutput(key, value);
+            }
         }
 
         public bool AddOutput(string key, string value)
@@ -154,6 +126,17 @@ namespace GitHub.Runner.Worker {
             return Outputs.TryAdd(key, taintVariable);
         }
 
+        public bool IsSecret(string value) {
+            string [] regexPatterns = { @"github\.token", @"secrets\.[a-zA-z0-9]+" };
+
+            foreach (string pattern in regexPatterns) {
+                MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
+                if (matches.Count > 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
         public bool IsTainted(string value)
         {
             // TODO: how we can detect tainted input inside composite actions. IsTaintedInput? 
@@ -249,9 +232,9 @@ namespace GitHub.Runner.Worker {
             } else if (module == TaintModule.NodeJS) {
                 moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "nodejs.py";
             } else if (module == TaintModule.Composite) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_BASH_MODULE") ?? "bash.py"; // FIX:
+                moduleName = System.Environment.GetEnvironmentVariable("TAINT_COMPOSITE_MODULE") ?? "bash.py"; // FIX: change the module 
             } else if (module == TaintModule.Docker) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_BASH_MODULE") ?? "bash.py"; // FIX:
+                moduleName = System.Environment.GetEnvironmentVariable("TAINT_DOCKER_MODULE") ?? "bash.py"; // FIX: change the module
             }
             var _invoker = HostContext.CreateService<IProcessInvoker>();
             string inputs = StringUtil.ConvertToJson(Inputs); // convert object into string
@@ -262,6 +245,7 @@ namespace GitHub.Runner.Worker {
         
             return await _invoker.ExecuteAsync(workingDirectory, moduleName, arguments,  environments, ExecutionContext.CancellationToken);
         }
+
 
         // bind the secret with specific action? But how?
         public void TrackSecret(string path) {
@@ -341,13 +325,15 @@ namespace GitHub.Runner.Worker {
     }
 
     public class TaintVariable {
+        // NOTE: should distinguish between expression and value
         public string Value { get; set; }
         public bool Tainted { get; set; }
-
-        public TaintVariable(string value, bool tainted = false)
+        public bool Secret { get; set; }
+        public TaintVariable(string value, bool tainted = false, bool secret = false)
         {
             Value = value;
             Tainted = tainted;
+            Secret = secret;
         }
     }
 }
