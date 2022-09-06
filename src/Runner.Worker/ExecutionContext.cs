@@ -371,7 +371,7 @@ namespace GitHub.Runner.Worker
             child.StepTelemetry.IsEmbedded = isEmbedded;
             child.StepTelemetry.StepContextName = child.GetFullyQualifiedContextName(); ;
 
-            // Setup TaintContext for child ExecutionContext
+            // NOTE: Setup TaintContext for child ExecutionContext
             child.TaintContext = new TaintContext(child, TaintContext);
             child.TaintContext.Initialize(HostContext);
             
