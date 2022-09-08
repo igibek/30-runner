@@ -327,6 +327,10 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.OutputDataReceived += stdoutManager.OnDataReceived;
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
+
+                int moduleExitCode = await ExecutionContext.TaintContext.ExecuteModule(Data.ExecutionType, ActionDirectory);
+                
+
                 // Execute
                 int exitCode = await StepHost.ExecuteAsync(ExecutionContext,
                                             workingDirectory: StepHost.ResolvePathForStepHost(ExecutionContext, workingDirectory),
@@ -344,7 +348,11 @@ namespace GitHub.Runner.Worker.Handlers
                 if (exitCode != 0)
                 {
                     ExecutionContext.Error($"Process completed with exit code {exitCode}.");
-                    ExecutionContext.Result = TaskResult.Failed;
+                    if (ExecutionContext.TaintContext.DependOnSecret) {
+                        ExecutionContext.Result = TaskResult.SucceededWithIssues;
+                    } else {
+                        ExecutionContext.Result = TaskResult.Failed;
+                    }
                 }
             }
         }

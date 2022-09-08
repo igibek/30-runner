@@ -9,13 +9,14 @@ using System.IO;
 using GitHub.Runner.Sdk;
 using GitHub.Runner.Common;
 using GitHub.DistributedTask.Pipelines.ObjectTemplating;
+using GitHub.DistributedTask.Pipelines;
 
 namespace GitHub.Runner.Worker {
 
     public class TaintContext : RunnerService
     {
 
-        private static Dictionary<Guid, TaintContext> _cachedIds = new Dictionary<Guid, TaintContext>();
+        
 
         public TaintContext(IExecutionContext executionContext, TaintContext parent = null) {
             ExecutionContext = executionContext;
@@ -46,6 +47,23 @@ namespace GitHub.Runner.Worker {
                 return result;
             }
         }
+        private static Dictionary<Guid, TaintContext> _cachedIds = new Dictionary<Guid, TaintContext>();
+        public static string RootDirectory {get; private set; }
+        public static string ModuleDirectory {get; private set; }
+        public static string TaintDirectory {get; private set; } = "_taint";
+
+        // This method called only once during job initialization
+        // inside ExecutionContext.InitializeJob method
+        public void InitialSetup(IHostContext hostContext) 
+        {
+            base.Initialize(hostContext);
+            
+            RootDirectory = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Root), TaintDirectory);
+            if (Directory.Exists(RootDirectory) == false) {
+                Directory.CreateDirectory(RootDirectory);        
+            }
+            ModuleDirectory = Path.Combine(RootDirectory, "modules");
+        }
 
         public bool IsEmbedded {get; private set; }
         public bool DependOnSecret { get; private set; } = false;
@@ -56,6 +74,8 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> Outputs { get; private set; }
         public Dictionary<string, string> Files {get; private set; }
         
+        
+
         public void AddEnvironmentVariables(TemplateToken token)
         {
             if (token == null) return;
@@ -225,25 +245,39 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
-        public async Task<int> ExecuteModule(TaintModule module) {
+        public async Task<int> ExecuteModule(ActionExecutionType executionType, string actionDirectory) {
             string moduleName = String.Empty;
-            if (module == TaintModule.Script) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_BASH_MODULE") ?? "bash.py";
-            } else if (module == TaintModule.NodeJS) {
+
+            if (executionType == ActionExecutionType.Script) {
+                moduleName = System.Environment.GetEnvironmentVariable("TAINT_BASH_MODULE") ?? "script.py";
+            } else if (executionType == ActionExecutionType.NodeJS) {
                 moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "nodejs.py";
-            } else if (module == TaintModule.Composite) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_COMPOSITE_MODULE") ?? "bash.py"; // FIX: change the module 
-            } else if (module == TaintModule.Docker) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_DOCKER_MODULE") ?? "bash.py"; // FIX: change the module
+            } else if (executionType == ActionExecutionType.Composite) {
+                // NOTE: not clear what to do with that. 
+                // Probably just ignore because composite actions are consists of different actions and script.
+                // NodeJS and Script will be taint tracked recursively from Composite actions
+            } else if (executionType == ActionExecutionType.Container) {
+                // ActionExecutionType.Container is not supported at this stage
+            } else if (executionType == ActionExecutionType.Plugin) {
+                // ActionExecutionType.Plugin is not supported at this stage
             }
-            var _invoker = HostContext.CreateService<IProcessInvoker>();
-            string inputs = StringUtil.ConvertToJson(Inputs); // convert object into string
-            string arguments = String.Format("--inputs={0} --envs={1}", inputs, StringUtil.ConvertToJson(EnvironmentVariables));
-            string workingDirectory = HostContext.GetDirectory(WellKnownDirectory.Work);
+
             
+            string content = StringUtil.ConvertToJson(new {
+                Inputs = Inputs,
+                Environments = EnvironmentVariables,
+                Directory = actionDirectory
+            });
+            
+            string filePath = Path.Combine(TaintContext.RootDirectory, "");
+            
+            string arguments = String.Format("--path={}", filePath);
+
             var environments = new Dictionary<string, string>();
+
+            var _invoker = HostContext.CreateService<IProcessInvoker>();
         
-            return await _invoker.ExecuteAsync(workingDirectory, moduleName, arguments,  environments, ExecutionContext.CancellationToken);
+            return await _invoker.ExecuteAsync(TaintContext.ModuleDirectory, moduleName, arguments,  environments, ExecutionContext.CancellationToken);
         }
 
 
