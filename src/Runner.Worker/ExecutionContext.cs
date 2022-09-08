@@ -683,7 +683,7 @@ namespace GitHub.Runner.Worker
             
             // Taint Context
             TaintContext = new TaintContext(this);
-            TaintContext.Initialize(HostContext);
+            TaintContext.InitialSetup(HostContext);
             Global = new GlobalContext();
             
             // Plan
