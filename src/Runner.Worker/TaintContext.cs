@@ -23,12 +23,12 @@ namespace GitHub.Runner.Worker {
             _parentTaintContext = parent;
             Inputs = new Dictionary<string, TaintVariable>();
             EnvironmentVariables = new Dictionary<string, TaintVariable>();
-            Outputs = new Dictionary<string, TaintVariable>();
-            Files = new Dictionary<string, string>();
+            // Outputs = new Dictionary<string, TaintVariable>();
+            // Files = new HashSet<string>();
+            // Secrets = new Dictionary<string, string>();
         }
 
         public Guid Id { get; private set; }
-
         public string DisplayName { get; private set; }
         
         public IExecutionContext ExecutionContext { get; set; }
@@ -51,6 +51,7 @@ namespace GitHub.Runner.Worker {
         public static string RootDirectory {get; private set; }
         public static string ModuleDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
+        public static string RepositoryDirectory {get; private set; } = string.Empty;
 
         // This method called only once during job initialization
         // inside ExecutionContext.InitializeJob method
@@ -59,10 +60,15 @@ namespace GitHub.Runner.Worker {
             base.Initialize(hostContext);
             
             RootDirectory = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Root), TaintDirectory);
-            if (Directory.Exists(RootDirectory) == false) {
+            if (!Directory.Exists(RootDirectory)) {
                 Directory.CreateDirectory(RootDirectory);        
             }
             ModuleDirectory = Path.Combine(RootDirectory, "modules");
+
+            // Only job context should have Outputs, Files, Secrets
+            Outputs = new Dictionary<string, TaintVariable>();
+            Files = new HashSet<string>();
+            Secrets = new Dictionary<string, string>();
         }
 
         public bool IsEmbedded {get; private set; }
@@ -70,9 +76,13 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> EnvironmentVariables { get; private set; }
 
         public Dictionary<string, TaintVariable> Inputs { get; private set; }
+        public HashSet<string> Values {get; private set; }
 
         public Dictionary<string, TaintVariable> Outputs { get; private set; }
-        public Dictionary<string, string> Files {get; private set; }
+        public HashSet<string> Files {get; private set; }
+        public Dictionary<string, string> Secrets {get; private set; }
+        public ActionExecutionType ExecutionType {get; set; }
+
         
         
 
@@ -117,6 +127,10 @@ namespace GitHub.Runner.Worker {
             Trace.Info("TAINTED: Adding input key-value. Key: {0}, Value: {1}", key, value);
             bool tainted = IsTainted(value);
             bool secret = IsSecret(value);
+            if (secret) DependOnSecret = true;
+
+            
+            
             var taintVariable = new TaintVariable(value, tainted, secret);
             
             // adding input environment variable 
@@ -245,13 +259,30 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
-        public async Task<int> ExecuteModule(ActionExecutionType executionType, string actionDirectory) {
+        public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
             string moduleName = String.Empty;
+            
+            if (string.IsNullOrEmpty(RepositoryDirectory)) {
+                RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
+                if (!Directory.Exists(RepositoryDirectory)) {
+                    Directory.CreateDirectory(RepositoryDirectory);
+                }
+            }
 
             if (executionType == ActionExecutionType.Script) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_BASH_MODULE") ?? "script.py";
+                string shell = "sh";
+                if (Inputs.TryGetValue("shell", out TaintVariable variable)) {
+                    shell = variable.EvaluatedValue;
+                } else if (string.IsNullOrEmpty(ExecutionContext.ScopeName) && ExecutionContext.Global.JobDefaults.TryGetValue("run", out var runDefaults)) {
+                    runDefaults.TryGetValue("shell", out shell);
+                }
+
+                moduleName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_MODULE") ?? "./script.py";
+                if (DependOnSecret && !string.IsNullOrEmpty(path)) {
+                    Files.Add(path);
+                }
             } else if (executionType == ActionExecutionType.NodeJS) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "nodejs.py";
+                moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "./nodejs.py";
             } else if (executionType == ActionExecutionType.Composite) {
                 // NOTE: not clear what to do with that. 
                 // Probably just ignore because composite actions are consists of different actions and script.
@@ -263,21 +294,30 @@ namespace GitHub.Runner.Worker {
             }
 
             
-            string content = StringUtil.ConvertToJson(new {
+            string contents = StringUtil.ConvertToJson(new {
+                Type = executionType.ToString(),
+                Action = ExecutionContext.GetGitHubContext("action_repository"),
+                Reference = ExecutionContext.GetGitHubContext("action_ref"),
+                Path = path,
                 Inputs = Inputs,
                 Environments = EnvironmentVariables,
-                Directory = actionDirectory
+                Files = Files,
+                Values = new List<string>() // values that are considered tainted
             });
-            
-            string filePath = Path.Combine(TaintContext.RootDirectory, "");
-            
-            string arguments = String.Format("--path={}", filePath);
+            string fileName = String.Format("{0}-{1}-{2}.json", ExecutionContext.GetGitHubContext("run_id"), ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
+            string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
+
+            File.WriteAllText(filePath, contents);
+
+            string arguments = String.Format("--path={0}", filePath);
 
             var environments = new Dictionary<string, string>();
 
             var _invoker = HostContext.CreateService<IProcessInvoker>();
-        
-            return await _invoker.ExecuteAsync(TaintContext.ModuleDirectory, moduleName, arguments,  environments, ExecutionContext.CancellationToken);
+            _invoker.OutputDataReceived += OnDataReceived;
+            _invoker.ErrorDataReceived += OnErrorReceived;
+
+            return await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
         }
 
 
@@ -348,6 +388,15 @@ namespace GitHub.Runner.Worker {
             }
         }
         #nullable disable
+        public void OnDataReceived(object sender, ProcessDataReceivedEventArgs e) {
+            var line = e.Data;
+            ExecutionContext.Output(line);
+        }
+
+        public void OnErrorReceived(object sendder, ProcessDataReceivedEventArgs e) {
+            var line = e.Data;
+            ExecutionContext.Error(line);
+        }
 
     }
 
@@ -360,7 +409,9 @@ namespace GitHub.Runner.Worker {
 
     public class TaintVariable {
         // NOTE: should distinguish between expression and value
+        public string Name { get; set; }
         public string Value { get; set; }
+        public string EvaluatedValue { get; set; }
         public bool Tainted { get; set; }
         public bool Secret { get; set; }
         public TaintVariable(string value, bool tainted = false, bool secret = false)
@@ -368,6 +419,14 @@ namespace GitHub.Runner.Worker {
             Value = value;
             Tainted = tainted;
             Secret = secret;
+            EvaluatedValue = "";
         }
+    }
+
+    public class TaintFile {
+        public string Path { get; set; }
+        public bool Tainted { get; set; }
+        public bool Secret { get; set; }
+        public bool Directory { get; set; }
     }
 }
