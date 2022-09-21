@@ -79,8 +79,8 @@ namespace GitHub.Runner.Worker {
         public HashSet<string> Values {get; private set; }
 
         public Dictionary<string, TaintVariable> Outputs { get; private set; }
-        public HashSet<string> Files {get; private set; }
-        public Dictionary<string, string> Secrets {get; private set; }
+        public static HashSet<string> Files {get; private set; }
+        public static Dictionary<string, string> Secrets {get; private set; }
         public ActionExecutionType ExecutionType {get; set; }
 
         
@@ -127,10 +127,14 @@ namespace GitHub.Runner.Worker {
             Trace.Info("TAINTED: Adding input key-value. Key: {0}, Value: {1}", key, value);
             bool tainted = IsTainted(value);
             bool secret = IsSecret(value);
-            if (secret) DependOnSecret = true;
-
-            
-            
+            if (secret) {
+                DependOnSecret = true;
+                // TODO: get the secret name
+                // TBH I do NOT know why I added it here.
+                // Currently we can get the all the secrets from inputs.
+                TaintContext.Secrets.TryAdd(key, value);
+            }
+   
             var taintVariable = new TaintVariable(value, tainted, secret);
             
             // adding input environment variable 
@@ -139,6 +143,8 @@ namespace GitHub.Runner.Worker {
             string envKey = key.Replace(' ', '_').ToUpperInvariant();
             EnvironmentVariables.TryAdd(envKey, taintVariable);
             
+            // We are using TryAdd instead of indexing because we avoid overwriting existing values.
+            // For example in the case when we are evaluating the Actions default value
             return Inputs.TryAdd(key, taintVariable);
         }
 
@@ -195,7 +201,7 @@ namespace GitHub.Runner.Worker {
                             return true;
                         }
                     }
-                    current = current._parentTaintContext;    
+                    current = current._parentTaintContext;
                 }
             }
 
@@ -279,7 +285,7 @@ namespace GitHub.Runner.Worker {
 
                 moduleName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_MODULE") ?? "./script.py";
                 if (DependOnSecret && !string.IsNullOrEmpty(path)) {
-                    Files.Add(path);
+                    TaintContext.Files.Add(path);
                 }
             } else if (executionType == ActionExecutionType.NodeJS) {
                 moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "./nodejs.py";
@@ -304,7 +310,12 @@ namespace GitHub.Runner.Worker {
                 Files = Files,
                 Values = new List<string>() // values that are considered tainted
             });
-            string fileName = String.Format("{0}-{1}-{2}.json", ExecutionContext.GetGitHubContext("run_id"), ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
+            
+            // returns JSON event object, which contains workflow file name
+            var githubEvent = ExecutionContext.GetGitHubContext("event"); 
+
+            string workflow = Path.GetFileNameWithoutExtension(ExecutionContext.GetGitHubContext("event.workflow"));
+            string fileName = String.Format("{0}-{1}-{2}-{3}.json", ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
             string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
 
             File.WriteAllText(filePath, contents);
