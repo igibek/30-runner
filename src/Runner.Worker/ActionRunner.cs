@@ -81,7 +81,8 @@ namespace GitHub.Runner.Worker
             ActionExecutionData handlerData = definition.Data?.Execution;
             ArgUtil.NotNull(handlerData, nameof(handlerData));
 
-            // NOTE: not only inputs but also step outputs must be catched here
+            // NOTE: not only inputs but also step outputs must be catched here 
+            // if they are Script type
             ExecutionContext.TaintContext.AddInputs(Action.Inputs); 
             ExecutionContext.TaintContext.AddEnvironmentVariables(Action.Environment);
             
@@ -213,13 +214,15 @@ namespace GitHub.Runner.Worker
             if (definition.Data?.Inputs != null)
             {
                 var manifestManager = HostContext.GetService<IActionManifestManager>();
+
+                // NOTE: adding default values into TaintContext
+                ExecutionContext.TaintContext.AddInputs(definition.Data.Inputs);
                 foreach (var input in definition.Data.Inputs)
                 {
                     string key = input.Key.AssertString("action input name").Value;
                     validInputs.Add(key);
                     if (!inputs.ContainsKey(key))
                     {
-                        // NOTE: default inputs are evaluated here
                         inputs[key] = manifestManager.EvaluateDefaultInput(ExecutionContext, key, input.Value);
                     }
                 }
