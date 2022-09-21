@@ -149,6 +149,8 @@ namespace GitHub.Runner.Worker
                 // Need to ignore values on whitelist
                 if (variable.Value.IsSecret && !SecretVariableMaskWhitelist.Contains(variable.Key))
                 {
+                    // NOTE: this is where secret value can be accessed
+
                     var value = variable.Value.Value?.Trim() ?? string.Empty;
 
                     // Add the entire value, even if it contains CR or LF. During expression tracing,
