@@ -10,26 +10,22 @@ using GitHub.Runner.Sdk;
 using GitHub.Runner.Common;
 using GitHub.DistributedTask.Pipelines.ObjectTemplating;
 using GitHub.DistributedTask.Pipelines;
+using Newtonsoft.Json;
 
 namespace GitHub.Runner.Worker {
 
     public class TaintContext : RunnerService
     {
 
-        
-
         public TaintContext(IExecutionContext executionContext, TaintContext parent = null) {
             ExecutionContext = executionContext;
             _parentTaintContext = parent;
             Inputs = new Dictionary<string, TaintVariable>();
             EnvironmentVariables = new Dictionary<string, TaintVariable>();
-            // Outputs = new Dictionary<string, TaintVariable>();
-            // Files = new HashSet<string>();
-            // Secrets = new Dictionary<string, string>();
+            IsEmbedded = ExecutionContext.IsEmbedded;
         }
 
         public Guid Id { get; private set; }
-        public string DisplayName { get; private set; }
         
         public IExecutionContext ExecutionContext { get; set; }
 
@@ -47,11 +43,28 @@ namespace GitHub.Runner.Worker {
                 return result;
             }
         }
-        private static Dictionary<Guid, TaintContext> _cachedIds = new Dictionary<Guid, TaintContext>();
         public static string RootDirectory {get; private set; }
         public static string ModuleDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
         public static string RepositoryDirectory {get; private set; } = string.Empty;
+        public static TaintEvent Event {get; private set; } = null;
+
+       
+
+        public bool IsEmbedded {get; private set; }
+        public bool DependOnSecret { get; private set; } = false;
+        public Dictionary<string, TaintVariable> EnvironmentVariables { get; private set; }
+        public Dictionary<string, TaintVariable> Inputs { get; private set; }
+
+        /**
+        GLOBAL SHARED VALUES
+        */
+        public HashSet<string> Values {get; private set; }
+        public HashSet<string> Files {get; private set; }
+        public Dictionary<string, string> Secrets {get; private set; }
+        public Dictionary<string, TaintVariable> StepOutputs { get; private set; }
+        public Dictionary<string, TaintVariable> JobOutputs {get; private set; }
+        public Dictionary<string, TaintVariable> Artifacts { get; private set; }
 
         // This method called only once during job initialization
         // inside ExecutionContext.InitializeJob method
@@ -66,25 +79,13 @@ namespace GitHub.Runner.Worker {
             ModuleDirectory = Path.Combine(RootDirectory, "modules");
 
             // Only job context should have Outputs, Files, Secrets
-            Outputs = new Dictionary<string, TaintVariable>();
+            StepOutputs = new Dictionary<string, TaintVariable>();
+            JobOutputs = new Dictionary<string, TaintVariable>();
+            Artifacts = new Dictionary<string, TaintVariable>();
             Files = new HashSet<string>();
             Secrets = new Dictionary<string, string>();
+            Values = new HashSet<string>();
         }
-
-        public bool IsEmbedded {get; private set; }
-        public bool DependOnSecret { get; private set; } = false;
-        public Dictionary<string, TaintVariable> EnvironmentVariables { get; private set; }
-
-        public Dictionary<string, TaintVariable> Inputs { get; private set; }
-        public HashSet<string> Values {get; private set; }
-
-        public Dictionary<string, TaintVariable> Outputs { get; private set; }
-        public static HashSet<string> Files {get; private set; }
-        public static Dictionary<string, string> Secrets {get; private set; }
-        public ActionExecutionType ExecutionType {get; set; }
-
-        
-        
 
         public void AddEnvironmentVariables(TemplateToken token)
         {
@@ -132,7 +133,7 @@ namespace GitHub.Runner.Worker {
                 // TODO: get the secret name
                 // TBH I do NOT know why I added it here.
                 // Currently we can get the all the secrets from inputs.
-                TaintContext.Secrets.TryAdd(key, value);
+                Root.Secrets.TryAdd(key, value);
             }
    
             var taintVariable = new TaintVariable(value, tainted, secret);
@@ -140,7 +141,7 @@ namespace GitHub.Runner.Worker {
             // adding input environment variable 
             // for every input runner will create env variable with "$INPUT_FOO" format
             // look AddInputsToEnvironment() function in Handler.cs
-            string envKey = key.Replace(' ', '_').ToUpperInvariant();
+            string envKey = "INPUT_" + key.Replace(' ', '_').ToUpperInvariant();
             EnvironmentVariables.TryAdd(envKey, taintVariable);
             
             // We are using TryAdd instead of indexing because we avoid overwriting existing values.
@@ -148,22 +149,71 @@ namespace GitHub.Runner.Worker {
             return Inputs.TryAdd(key, taintVariable);
         }
 
-        
-        public void AddOutputs(TemplateToken token) {
+        public bool UpdateInputWithValue(string key, string value) {
+            if (Inputs.TryGetValue(key, out TaintVariable variable)) {
+                Inputs[key].EvaluatedValue = value;
+                if (variable.Tainted) {
+                    Root.Values.Add(value);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public bool UpdateEnvironmentWithValue(string key, string value) {
+            if (EnvironmentVariables.TryGetValue(key, out TaintVariable variable)) {
+                EnvironmentVariables[key].EvaluatedValue = value;
+                if (variable.Tainted) {
+                    Root.Values.Add(value);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public bool UpdateJobOutputsWithValue(string key, string value) {
+            if (Root.JobOutputs.TryGetValue(key, out TaintVariable variable)) {
+                Root.JobOutputs[key].EvaluatedValue = value;
+                if (variable.Tainted) {
+                    Root.Values.Add(value);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public bool UpdateStepOutputsWithValue(string key, string value) {
+            if (Root.StepOutputs.TryGetValue(key, out TaintVariable variable)) {
+                Root.StepOutputs[key].EvaluatedValue = value;
+                if (variable.Tainted) {
+                    Root.Values.Add(value);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        public void AddJobOutputs(TemplateToken token) {
+            var mapping = token.AssertMapping("taint job outputs");
+
+            foreach (var pair in mapping) {
+                string key = pair.Key.ToString();
+                string value = pair.Value.ToString();
+                var taintVariable = new TaintVariable(value, IsTainted(value), IsSecret(value));
+                Root.JobOutputs.TryAdd(key, taintVariable);
+            }
+        }
+
+        public void AddStepOutputs(TemplateToken token) {
             
             var mapping = token.AssertMapping("taint outputs");
 
             foreach (var pair in mapping) {
                 string key = pair.Key.ToString();
                 string value = pair.Value.ToString();
-                AddOutput(key, value);
+                var taintVariable = new TaintVariable(key, IsTainted(value), IsSecret(value));
+                Root.StepOutputs.TryAdd(key, taintVariable);
             }
-        }
-
-        public bool AddOutput(string key, string value)
-        {
-            var taintVariable = new TaintVariable(value, IsTainted(value));
-            return Outputs.TryAdd(key, taintVariable);
         }
 
         public bool IsSecret(string value) {
@@ -186,32 +236,38 @@ namespace GitHub.Runner.Worker {
         public bool IsTaintedEnvironment(string value)
         {
             // Used the regex from this thread: https://stackoverflow.com/questions/2821043/allowed-characters-in-linux-environment-variable-names
-            // TODO: what about environment variables in Windows
-            Regex envRegex = new Regex(@"\$[a-z_][a-z0-9_]*", RegexOptions.Compiled);
-            MatchCollection matchCollection = envRegex.Matches(value);
+            // NOTE: what about environment variables in Windows
+            string [] regexPatterns = {@"\$[a-zA-Z_][a-zA-Z0-9_]*", @"env\.[a-zA-Z0-9_-]+"};
             TaintVariable taintVariable;
-            foreach (var match in matchCollection)
-            {
-                var env = match.ToString();
+            bool isTainted = false;
+            foreach (var regex in regexPatterns) {
+                Regex envRegex = new Regex(regex, RegexOptions.Compiled);
+                MatchCollection matchCollection = envRegex.Matches(value);    
+                foreach (var match in matchCollection)
+                {
+                    var env = match.ToString(); // NOTE: returns env.FOO -> need to get FOO
+                    env = env.Replace("env.", "");
+                    env = env.Replace("$", "");
 
-                var current = this;
-                while (current != null) {
-                    if (current.EnvironmentVariables.TryGetValue(env, out taintVariable)) {
-                        if (taintVariable.Tainted) {
-                            return true;
+                    var current = this;
+                    while (current != null) {
+                        if (current.EnvironmentVariables.TryGetValue(env, out taintVariable)) {
+                            isTainted = taintVariable.Tainted;
+                            break;
                         }
+                        current = current._parentTaintContext; // NOTE: Should we take parent on only Job is enough. Test it on composite actions
                     }
-                    current = current._parentTaintContext;
                 }
             }
+            
 
-            return false;
+            return isTainted;
         }
 
         public bool IsTaintedGithub(string value)
         {
             // get the list of tainted inputs from here: https://securitylab.github.com/research/github-actions-untrusted-input/ 
-            string[] regexPatterns = { @"github\.event\.inputs\.[a-z0-9_-]+", // event inputs
+            string[] regexPatterns = { @"github\.event\.inputs\.[a-z0-9_-]+", // event inputs NOTE: can inputs use CAPITAL letters?
                                         @"github\.event\.issue\.title", @"github\.event\.issue\.body", // issues 
                                         @"github\.event\.pull_request\.title", @"github\.event\.pull_request\.body", // pull requests
                                         @"github\.event\.pull_request\.head\.ref", @"github\.event\.pull_request\.head\.label", @"github\.event\.pull_request\.head\.repo\.default_branch",// pull requests
@@ -253,9 +309,14 @@ namespace GitHub.Runner.Worker {
         public bool IsTaintedJobOutput(string reference)
         {
             // root TaintContext belongs to Job
-            Root.Outputs.TryGetValue(reference, out TaintVariable taintVariable);
+            Root.JobOutputs.TryGetValue(reference, out TaintVariable taintVariable);
             
             // checks if taintVariable is null, otherwise it will throw null pointer exception
+            return taintVariable == null ? false : taintVariable.Tainted;
+        }
+
+        public bool IsTaintedStepOutputs(string reference) {
+            Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable);
             return taintVariable == null ? false : taintVariable.Tainted;
         }
 
@@ -266,56 +327,43 @@ namespace GitHub.Runner.Worker {
         }
 
         public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
-            string moduleName = String.Empty;
             
-            if (string.IsNullOrEmpty(RepositoryDirectory)) {
-                RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
-                if (!Directory.Exists(RepositoryDirectory)) {
-                    Directory.CreateDirectory(RepositoryDirectory);
+            InitializeEvent();
+            
+            if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
+                Root.Files.Add(path);
+            }
+            
+            var inputs = new Dictionary<string, TaintVariable>();
+            foreach(var item in Inputs) {
+                if (item.Value.Tainted || item.Value.Secret) {
+                    inputs.Add(item.Key, item.Value);
                 }
             }
 
-            if (executionType == ActionExecutionType.Script) {
-                string shell = "sh";
-                if (Inputs.TryGetValue("shell", out TaintVariable variable)) {
-                    shell = variable.EvaluatedValue;
-                } else if (string.IsNullOrEmpty(ExecutionContext.ScopeName) && ExecutionContext.Global.JobDefaults.TryGetValue("run", out var runDefaults)) {
-                    runDefaults.TryGetValue("shell", out shell);
+            var env = new Dictionary<string, TaintVariable>();
+            foreach (var item in EnvironmentVariables) {
+                if (item.Value.Tainted || item.Value.Secret) {
+                    env.Add(item.Key, item.Value);
                 }
-
-                moduleName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_MODULE") ?? "./script.py";
-                if (DependOnSecret && !string.IsNullOrEmpty(path)) {
-                    TaintContext.Files.Add(path);
-                }
-            } else if (executionType == ActionExecutionType.NodeJS) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "./nodejs.py";
-            } else if (executionType == ActionExecutionType.Composite) {
-                // NOTE: not clear what to do with that. 
-                // Probably just ignore because composite actions are consists of different actions and script.
-                // NodeJS and Script will be taint tracked recursively from Composite actions
-            } else if (executionType == ActionExecutionType.Container) {
-                // ActionExecutionType.Container is not supported at this stage
-            } else if (executionType == ActionExecutionType.Plugin) {
-                // ActionExecutionType.Plugin is not supported at this stage
             }
 
-            
             string contents = StringUtil.ConvertToJson(new {
                 Type = executionType.ToString(),
                 Action = ExecutionContext.GetGitHubContext("action_repository"),
                 Reference = ExecutionContext.GetGitHubContext("action_ref"),
                 Path = path,
-                Inputs = Inputs,
-                Environments = EnvironmentVariables,
+                Inputs = inputs,
+                Environments = env,
                 Files = Files,
-                Values = new List<string>() // values that are considered tainted
+                Values = Values, // values that are considered tainted
+                Secrets = Secrets // all secrets values
             });
-            
-            // returns JSON event object, which contains workflow file name
-            var githubEvent = ExecutionContext.GetGitHubContext("event"); 
 
-            string workflow = Path.GetFileNameWithoutExtension(ExecutionContext.GetGitHubContext("event.workflow"));
-            string fileName = String.Format("{0}-{1}-{2}-{3}.json", ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
+            string moduleName = GetModuleName(executionType);
+
+            string workflow = Path.GetFileNameWithoutExtension(Event.Workflow);
+            string fileName = String.Format("{0}__{1}__{2}__{3}.json", ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
             string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
 
             File.WriteAllText(filePath, contents);
@@ -327,11 +375,37 @@ namespace GitHub.Runner.Worker {
             var _invoker = HostContext.CreateService<IProcessInvoker>();
             _invoker.OutputDataReceived += OnDataReceived;
             _invoker.ErrorDataReceived += OnErrorReceived;
-
+            
+            
             return await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
         }
 
+        public void StoreJobTaintContext() {
+            
+            InitializeEvent();
+            
+            var outputs = new Dictionary<string, TaintVariable>();
+            foreach (var item in Root.JobOutputs) {
+                if (item.Value.Tainted || item.Value.Secret) {
+                    outputs.Add(item.Key, item.Value);
+                }
+            }
 
+            var artifacts = new Dictionary<string, TaintVariable>();
+            foreach (var item in Root.Artifacts) {
+                artifacts.Add(item.Key, item.Value);
+            }
+
+            string content = StringUtil.ConvertToJson(new {
+                JobName = ExecutionContext.GetGitHubContext("job"),
+                JobOutputs = outputs,
+                Artifacts = artifacts
+            });
+            
+            string fileName = String.Format("{0}__{1}__{2}__results.json", Event.Workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.GetGitHubContext("run_id"));
+            string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
+            File.WriteAllText(filePath, content);
+        }
         // bind the secret with specific action? But how?
         public void TrackSecret(string path) {
             using var watcher = new FileSystemWatcher(path);
@@ -409,6 +483,46 @@ namespace GitHub.Runner.Worker {
             ExecutionContext.Error(line);
         }
 
+        private void InitializeEvent() {
+            if (Event == null) {
+                Event = JsonConvert.DeserializeObject<TaintEvent>(ExecutionContext.GetGitHubContext("event"));
+            }
+        }
+
+        private string GetModuleName(ActionExecutionType executionType) {
+            string moduleName = String.Empty;
+            
+            if (string.IsNullOrEmpty(RepositoryDirectory)) {
+                RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
+                if (!Directory.Exists(RepositoryDirectory)) {
+                    Directory.CreateDirectory(RepositoryDirectory);
+                }
+            }
+
+            if (executionType == ActionExecutionType.Script) {
+                string shell = "sh";
+                if (Inputs.TryGetValue("shell", out TaintVariable variable)) {
+                    shell = variable.EvaluatedValue;
+                } else if (string.IsNullOrEmpty(ExecutionContext.ScopeName) && ExecutionContext.Global.JobDefaults.TryGetValue("run", out var runDefaults)) {
+                    runDefaults.TryGetValue("shell", out shell);
+                }
+
+                moduleName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_MODULE") ?? "./script.py";
+            } else if (executionType == ActionExecutionType.NodeJS) {
+                moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "./nodejs.py";
+            } else if (executionType == ActionExecutionType.Composite) {
+                // NOTE: not clear what to do with that. 
+                // Probably just ignore because composite actions are consists of different actions and script.
+                // NodeJS and Script will be taint tracked recursively from Composite actions
+            } else if (executionType == ActionExecutionType.Container) {
+                // ActionExecutionType.Container is not supported at this stage
+            } else if (executionType == ActionExecutionType.Plugin) {
+                // ActionExecutionType.Plugin is not supported at this stage
+            }
+
+            return moduleName;
+        }
+
     }
 
     public enum TaintModule {
@@ -439,5 +553,9 @@ namespace GitHub.Runner.Worker {
         public bool Tainted { get; set; }
         public bool Secret { get; set; }
         public bool Directory { get; set; }
+    }
+
+    public class TaintEvent {
+        public string Workflow { get; set; }
     }
 }
