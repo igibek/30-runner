@@ -83,8 +83,10 @@ namespace GitHub.Runner.Worker
 
             // NOTE: not only inputs but also step outputs must be catched here 
             // if they are Script type
-            ExecutionContext.TaintContext.AddInputs(Action.Inputs); 
+            // Order is important if we want to catch tainted environment variables
             ExecutionContext.TaintContext.AddEnvironmentVariables(Action.Environment);
+            ExecutionContext.TaintContext.AddInputs(Action.Inputs); 
+            
             
             List<JobExtensionRunner> localActionContainerSetupSteps = null;
             // Handle Composite Local Actions
