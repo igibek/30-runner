@@ -190,12 +190,12 @@ namespace GitHub.Runner.Worker
                         context.SetGitHubContext("api_url", $"{url.Scheme}://{url.Host}{portInfo}/api/v3");
                         context.SetGitHubContext("graphql_url", $"{url.Scheme}://{url.Host}{portInfo}/api/graphql");
                     }
-
-                    // Evaluate the job-level environment variables
+                    // NOTE: Evaluate the job-level environment variables
                     context.Debug("Evaluating job-level environment variables");
                     var templateEvaluator = context.ToPipelineTemplateEvaluator();
                     foreach (var token in message.EnvironmentVariables)
                     {
+                        jobContext.TaintContext.AddEnvironmentVariables(token);
                         var environmentVariables = templateEvaluator.EvaluateStepEnvironment(token, jobContext.ExpressionValues, jobContext.ExpressionFunctions, VarUtil.EnvironmentVariableKeyComparer);
                         foreach (var pair in environmentVariables)
                         {
@@ -226,10 +226,12 @@ namespace GitHub.Runner.Worker
                         }
                     }
 
-                    // Evaluate the job defaults
+                    // NOTE: Evaluate the job defaults
                     context.Debug("Evaluating job defaults");
                     foreach (var token in message.Defaults)
                     {
+                        // Adding default jobs values as inputs to jobContext
+                        jobContext.TaintContext.AddInputs(token);
                         var defaults = token.AssertMapping("defaults");
                         if (defaults.Any(x => string.Equals(x.Key.AssertString("defaults key").Value, "run", StringComparison.OrdinalIgnoreCase)))
                         {
@@ -494,7 +496,7 @@ namespace GitHub.Runner.Worker
                             Trace.Info("Initialize Env context for evaluating job outputs");
 
                             // NOTE: jobs outputs are evaluated here. Basically, this where TaintContext must process job outputs
-                            jobContext.TaintContext.AddOutputs(message.JobOutputs);
+                            jobContext.TaintContext.AddJobOutputs(message.JobOutputs);
 
                             var outputs = templateEvaluator.EvaluateJobOutput(message.JobOutputs, context.ExpressionValues, context.ExpressionFunctions);
                             foreach (var output in outputs)
@@ -513,11 +515,14 @@ namespace GitHub.Runner.Worker
 
                                 context.Output($"Set output '{output.Key}'");
                                 jobContext.JobOutputs[output.Key] = output.Value;
-                                if (jobContext.TaintContext.Outputs[output.Key].Tainted) {
-                                    context.Output($"Detected tainted output '{output.Key}'");
-                                    jobContext.JobOutputs["tainted_"+output.Key] = output.Value;
-                                }
+                                // if (jobContext.TaintContext.JobOutputs[output.Key].Tainted) {
+                                //     context.Output($"Detected tainted output '{output.Key}'");
+                                //     jobContext.JobOutputs["tainted_"+output.Key] = output.Value;
+                                // }
+                                
                             }
+                            // NOTE: sotring job outputs and artifacts
+                            jobContext.TaintContext.StoreJobTaintContext();
                         }
                         catch (Exception ex)
                         {
