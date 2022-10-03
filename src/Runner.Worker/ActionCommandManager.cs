@@ -336,7 +336,7 @@ namespace GitHub.Runner.Worker
             {
                 throw new Exception("Required field 'name' is missing in ##[save-state] command.");
             }
-            // Embedded steps (composite) keep track of the state at the root level
+            // NOTE: Embedded steps (composite) keep track of the state at the root level
             if (context.IsEmbedded)
             {
                 var id = context.EmbeddedId;

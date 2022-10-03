@@ -25,7 +25,7 @@ namespace GitHub.Runner.Worker.Expressions
             var executionContext = templateContext.State[nameof(IExecutionContext)] as IExecutionContext;
             ArgUtil.NotNull(executionContext, nameof(executionContext));
 
-            // Decide based on 'action_status' for composite MAIN steps and 'job.status' for pre, post and job-level steps
+            // NOTE: Decide based on 'action_status' for composite MAIN steps and 'job.status' for pre, post and job-level steps
             var isCompositeMainStep = executionContext.IsEmbedded && executionContext.Stage == ActionRunStage.Main;
             if (isCompositeMainStep)
             {
