@@ -413,7 +413,7 @@ namespace GitHub.Runner.Worker {
             return await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
         }
 
-        public void StoreJobTaintContext() {
+        public void SaveJobTaintContext() {
             
             InitializeEvent();
             
@@ -439,6 +439,11 @@ namespace GitHub.Runner.Worker {
             string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
             File.WriteAllText(filePath, content);
         }
+
+        public void RestoreJobTaintContext() {
+
+        }
+
         // bind the secret with specific action? But how?
         public void TrackSecret(string path) {
             using var watcher = new FileSystemWatcher(path);

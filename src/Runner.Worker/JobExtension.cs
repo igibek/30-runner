@@ -522,7 +522,7 @@ namespace GitHub.Runner.Worker
                                 
                             }
                             // NOTE: sotring job outputs and artifacts
-                            jobContext.TaintContext.StoreJobTaintContext();
+                            jobContext.TaintContext.SaveJobTaintContext();
                         }
                         catch (Exception ex)
                         {
