@@ -43,6 +43,7 @@ namespace GitHub.Runner.Worker {
                 return result;
             }
         }
+        public static string EventName { get; private set; }
         public static string RootDirectory {get; private set; }
         public static string ModuleDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
@@ -77,6 +78,7 @@ namespace GitHub.Runner.Worker {
                 Directory.CreateDirectory(RootDirectory);        
             }
             ModuleDirectory = Path.Combine(RootDirectory, "modules");
+            // EventName = ExecutionContext.GetGitHubContext("event_name");
 
             // Only job context should have Outputs, Files, Secrets
             StepOutputs = new Dictionary<string, TaintVariable>();
@@ -89,6 +91,7 @@ namespace GitHub.Runner.Worker {
 
         public void AddEnvironmentVariables(TemplateToken token)
         {
+            Trace.Info("Adding environment variables");
             if (token == null) return;
 
             var mapping = token.AssertMapping("taint envs");
@@ -102,18 +105,18 @@ namespace GitHub.Runner.Worker {
 
         private bool AddEnvironmentVariable(string key, string value)
         {
-            var taintVariable = new TaintVariable(value, IsTainted(value));
+            Trace.Info($"Adding env key-value. Key: {key}, Value: {value}");
+            bool tainted = IsTainted(value);
+            bool issecret = IsSecret(value);
+            var taintVariable = new TaintVariable(value, tainted, issecret);
             return EnvironmentVariables.TryAdd(key, taintVariable);
         }
 
         public void AddInputs(TemplateToken token)
         {
+            Trace.Info("Adding inputs");
             if (token == null) return;
-            
-            // TODO: are you sure that this is MappingToken
             var mapping = token.AssertMapping("taint inputs");
-
-            
             foreach (var pair in mapping) {
                 // TODO: type of the key and value
                 string key = pair.Key.ToString();
@@ -125,7 +128,7 @@ namespace GitHub.Runner.Worker {
         private bool AddInput(string key, string value)
         {
             
-            Trace.Info("TAINTED: Adding input key-value. Key: {0}, Value: {1}", key, value);
+            Trace.Info($"Adding input key-value. Key: {key}, Value: {value}");
             bool tainted = IsTainted(value);
             bool secret = IsSecret(value);
             if (secret) {
@@ -149,26 +152,28 @@ namespace GitHub.Runner.Worker {
             return Inputs.TryAdd(key, taintVariable);
         }
 
-        public bool UpdateInputWithValue(string key, string value) {
-            if (Inputs.TryGetValue(key, out TaintVariable variable)) {
-                Inputs[key].EvaluatedValue = value;
-                if (variable.Tainted) {
-                    Root.Values.Add(value);
-                }
-                return true;
+        public void AddEvaluatedInputs(Dictionary<string, string> inputs) {
+            foreach (var input in inputs) {
+                if (Inputs.TryGetValue(input.Key, out TaintVariable variable)) {
+                    Inputs[input.Key].EvaluatedValue = input.Value;
+                    if (variable.Tainted) {
+                        Trace.Info($"Adding evaluated input key-value. Key: {input.Key}, Value: {input.Value}");
+                        Root.Values.Add(input.Value);
+                    }
+                }    
             }
-            return false;
         }
 
-        public bool UpdateEnvironmentWithValue(string key, string value) {
-            if (EnvironmentVariables.TryGetValue(key, out TaintVariable variable)) {
-                EnvironmentVariables[key].EvaluatedValue = value;
-                if (variable.Tainted) {
-                    Root.Values.Add(value);
+        public void AddEvaluatedEnvironments(Dictionary<string, string> environments) {
+            foreach (var env in environments) {
+                if (EnvironmentVariables.TryGetValue(env.Key, out TaintVariable variable)) {
+                    EnvironmentVariables[env.Key].EvaluatedValue = env.Value;
+                    if (variable.Tainted) {
+                        Trace.Info($"Adding evaluated env key-value. Key: {env.Key}, Value: {env.Value}");
+                        Root.Values.Add(env.Value);
+                    }
                 }
-                return true;
             }
-            return false;
         }
 
         public bool UpdateJobOutputsWithValue(string key, string value) {
@@ -206,7 +211,7 @@ namespace GitHub.Runner.Worker {
 
         public void AddStepOutputs(TemplateToken token) {
             
-            var mapping = token.AssertMapping("taint outputs");
+            var mapping = token.AssertMapping("taint step outputs");
 
             foreach (var pair in mapping) {
                 string key = pair.Key.ToString();
@@ -289,8 +294,7 @@ namespace GitHub.Runner.Worker {
 
         public bool IsTaintedInput(string value)
         {
-            // TODO: implement. 
-            string [] regexPatterns = { @"github\.inputs.\[a-z0-9_-]+" };
+            string [] regexPatterns = { @"github\.inputs.\[a-zA-Z0-9_-]+" };
 
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
@@ -315,17 +319,46 @@ namespace GitHub.Runner.Worker {
             return taintVariable == null ? false : taintVariable.Tainted;
         }
 
-        public bool IsTaintedStepOutputs(string reference) {
+        public bool IsTaintedStepOutput(string reference) {
             Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable);
             return taintVariable == null ? false : taintVariable.Tainted;
         }
 
-        public bool IsTaintedStepOutput(string value)
-        {
-            // TODO: implement
-            return false;
-        }
+        public void CheckArtifact() {
+            
+            string action_ref = ExecutionContext.GetGitHubContext("action_ref");
 
+            // verify that this is called only for actions/upload-artifacts
+            if (action_ref != "actions/upload-artifacts" || action_ref != "actions/download-artifacts") {
+                return;
+            }
+            // iterate through the actions/upload-artifacts inputs 
+            // checks it agains global files field
+            if (Inputs.TryGetValue("path", out TaintVariable taintVariable)) {
+                string artifactName = Inputs["name"].EvaluatedValue;
+                string artifactPath = taintVariable.EvaluatedValue;
+                
+                // checks if the path is marked as tainted
+                // NOTE: TODO: is method does not consider several edge cases
+                // 1. When the PATH is array (done)
+                // 2. When the PATH is glob
+                // 3. When artifact is under the tainted folder. (done)
+                // aritfactPath input can include array of different locations
+                string[] artifacts = artifactPath.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                foreach (var artifact in artifacts) {
+                    if (Files.Contains(artifact)) {
+                        Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                    } else {
+                        foreach (var file in Files) {
+                            if (file.StartsWith(artifact)) {
+                                Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                            }
+                        }
+                    }
+                }
+            }
+            
+        }
         public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
             
             InitializeEvent();
