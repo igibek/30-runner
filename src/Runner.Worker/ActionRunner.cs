@@ -269,6 +269,17 @@ namespace GitHub.Runner.Worker
                 environment[$"STATE_{state.Key}"] = state.Value ?? string.Empty;
             }
 
+            // NOTE: adding evaluated values to TaintContext
+            ExecutionContext.TaintContext.AddEvaluatedInputs(inputs);
+            // NOTE: adding evaluated environment values into TaintContext
+            ExecutionContext.TaintContext.AddEvaluatedEnvironments(environment);
+            // NOTE: checking the artifact
+            string action_ref = ExecutionContext.GetGitHubContext("action_ref");
+            if (action_ref == "actions/upload-artifact") {
+                Trace.Warning("actions/upload-artifact detected");
+                ExecutionContext.TaintContext.CheckArtifact();
+            }
+            
             // Create the handler.
             IHandler handler = handlerFactory.Create(
                             ExecutionContext,
