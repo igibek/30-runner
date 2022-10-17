@@ -66,6 +66,7 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> StepOutputs { get; private set; }
         public Dictionary<string, TaintVariable> JobOutputs {get; private set; }
         public Dictionary<string, TaintVariable> Artifacts { get; private set; }
+        public Dictionary<string, JobTaintContext> PreviousJobs {get; private set; }
 
         // This method called only once during job initialization
         // inside ExecutionContext.InitializeJob method
@@ -87,6 +88,7 @@ namespace GitHub.Runner.Worker {
             Files = new HashSet<string>();
             Secrets = new Dictionary<string, string>();
             Values = new HashSet<string>();
+            PreviousJobs = new Dictionary<string, JobTaintContext>();
         }
 
         public void AddEnvironmentVariables(TemplateToken token)
@@ -429,7 +431,7 @@ namespace GitHub.Runner.Worker {
                 artifacts.Add(item.Key, item.Value);
             }
 
-            string content = StringUtil.ConvertToJson(new {
+            string content = StringUtil.ConvertToJson(new JobTaintContext{
                 JobName = ExecutionContext.GetGitHubContext("job"),
                 JobOutputs = outputs,
                 Artifacts = artifacts
@@ -440,8 +442,19 @@ namespace GitHub.Runner.Worker {
             File.WriteAllText(filePath, content);
         }
 
-        public void RestoreJobTaintContext() {
-
+        public void RestoreJobTaintContext(string jobName) {
+            InitializeEvent();
+            string fileName = String.Format("{0}__{1}__{2}__results.json", Event.Workflow, jobName, ExecutionContext.GetGitHubContext("run_id"));
+            // restore the JobTaintContext of the {jobName}
+            if (File.Exists(fileName)) {
+                string content = File.ReadAllText(fileName);
+                var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
+                PreviousJobs.TryAdd(jobTaintContext.JobName, jobTaintContext);
+                // inserting artifacts from previous jobs into current job's static Artifacts variable
+                foreach (var artifact in jobTaintContext.Artifacts) {
+                    Artifacts.Add(artifact.Key, artifact.Value);
+                }
+            }
         }
 
         // bind the secret with specific action? But how?
@@ -595,5 +608,12 @@ namespace GitHub.Runner.Worker {
 
     public class TaintEvent {
         public string Workflow { get; set; }
+    }
+
+    public class JobTaintContext {
+        public string JobName {get; set; }
+        public Dictionary<string, TaintVariable> Artifacts {get; set; }
+        public Dictionary<string, TaintVariable> JobOutputs {get; set; }
+
     }
 }
