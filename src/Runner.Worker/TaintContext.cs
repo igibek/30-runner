@@ -66,7 +66,7 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> StepOutputs { get; private set; }
         public Dictionary<string, TaintVariable> JobOutputs {get; private set; }
         public Dictionary<string, TaintVariable> Artifacts { get; private set; }
-        public Dictionary<string, JobTaintContext> PreviousJobs {get; private set; }
+        public Dictionary<string, TaintVariable> PreviousJobs {get; private set; }
 
         // This method called only once during job initialization
         // inside ExecutionContext.InitializeJob method
@@ -88,7 +88,7 @@ namespace GitHub.Runner.Worker {
             Files = new HashSet<string>();
             Secrets = new Dictionary<string, string>();
             Values = new HashSet<string>();
-            PreviousJobs = new Dictionary<string, JobTaintContext>();
+            PreviousJobs = new Dictionary<string, TaintVariable>();
         }
 
         public void AddEnvironmentVariables(TemplateToken token)
@@ -237,7 +237,7 @@ namespace GitHub.Runner.Worker {
         public bool IsTainted(string value)
         {
             // TODO: how we can detect tainted input inside composite actions. IsTaintedInput? 
-            return IsTaintedGithub(value) || IsTaintedStepOutput(value) || IsTaintedJobOutput(value) || IsTaintedEnvironment(value);
+            return IsTaintedGithub(value)|| IsTaintedEnvironment(value) || IsTaintedStepOutput(value) || IsTaintedJobOutput(value);
         }
 
         public bool IsTaintedEnvironment(string value)
@@ -312,18 +312,40 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
-        public bool IsTaintedJobOutput(string reference)
+        public bool IsTaintedJobOutput(string value)
         {
-            // root TaintContext belongs to Job
-            Root.JobOutputs.TryGetValue(reference, out TaintVariable taintVariable);
+            string regexPattern = @"needs\.[a-zA-Z0-9]+\.outputs\.[a-zA-Z0-9]+";
+            Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
+            MatchCollection matches = regex.Matches(value);
+            foreach(var match in matches) {
+                string reference = match.ToString();
+                // root TaintContext belongs to Job
+                if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
+                    if (taintVariable.Tainted) {
+                        return true;
+                    }
+                }
+            }
             
-            // checks if taintVariable is null, otherwise it will throw null pointer exception
-            return taintVariable == null ? false : taintVariable.Tainted;
+            return false;
         }
 
-        public bool IsTaintedStepOutput(string reference) {
-            Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable);
-            return taintVariable == null ? false : taintVariable.Tainted;
+        public bool IsTaintedStepOutput(string value) {
+            // NOTE: TODO: implement step output
+            string regexPattern = @"steps.\[a-zA-Z0-9]+\.outputs\.\[a-zA-Z0-9]+";
+            Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
+            MatchCollection matchCollection = regex.Matches(value);
+
+            foreach (var match in matchCollection) {
+                string reference = match.ToString();
+                if (Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable)) {
+                    if (taintVariable.Tainted) {
+                        return true;
+                    }
+                }
+                
+            }
+            return false;
         }
 
         public void CheckArtifact() {
@@ -349,11 +371,11 @@ namespace GitHub.Runner.Worker {
                 string[] artifacts = artifactPath.Split('\n', StringSplitOptions.RemoveEmptyEntries);
                 foreach (var artifact in artifacts) {
                     if (Files.Contains(artifact)) {
-                        Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                        Root.Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
                     } else {
                         foreach (var file in Files) {
                             if (file.StartsWith(artifact)) {
-                                Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                                Root.Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
                             }
                         }
                     }
@@ -444,15 +466,19 @@ namespace GitHub.Runner.Worker {
 
         public void RestoreJobTaintContext(string jobName) {
             InitializeEvent();
-            string fileName = String.Format("{0}__{1}__{2}__results.json", Event.Workflow, jobName, ExecutionContext.GetGitHubContext("run_id"));
+            string fileName = String.Format("{0}__{1}__{2}__results.json", ExecutionContext.GetGitHubContext("run_id"), Event.Workflow, jobName);
+            string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
             // restore the JobTaintContext of the {jobName}
-            if (File.Exists(fileName)) {
-                string content = File.ReadAllText(fileName);
+            if (File.Exists(filePath)) {
+                string content = File.ReadAllText(filePath);
                 var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
-                PreviousJobs.TryAdd(jobTaintContext.JobName, jobTaintContext);
+                foreach (var jobOutput in jobTaintContext.JobOutputs) {
+                    Root.PreviousJobs.TryAdd($"needs.{jobTaintContext.JobName}.outputs.{jobOutput.Key}", jobOutput.Value);
+                }
+                
                 // inserting artifacts from previous jobs into current job's static Artifacts variable
                 foreach (var artifact in jobTaintContext.Artifacts) {
-                    Artifacts.Add(artifact.Key, artifact.Value);
+                    Root.Artifacts.Add(artifact.Key, artifact.Value);
                 }
             }
         }
