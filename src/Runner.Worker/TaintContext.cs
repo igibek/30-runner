@@ -43,14 +43,21 @@ namespace GitHub.Runner.Worker {
                 return result;
             }
         }
+        
+        /**
+        STATIC SHARED VARIABLES
+        */
         public static string EventName { get; private set; }
         public static string RootDirectory {get; private set; }
         public static string ModuleDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
         public static string RepositoryDirectory {get; private set; } = string.Empty;
         public static TaintEvent Event {get; private set; } = null;
-
-       
+        // step__{run_id}__{job}__{step id}.json
+        public const string StepInputFileName = "step__{0}__{1}__{2}__input.json";
+        public const string StepOutputFileName = "step__{0}__{1}__{2}__output.json";
+        // job__{run_id}__{job}.json
+        public const string JobOutputFileName = "job__{0}__{1}.json";
 
         public bool IsEmbedded {get; private set; }
         public bool DependOnSecret { get; private set; } = false;
