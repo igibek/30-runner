@@ -1,13 +1,11 @@
-﻿using GitHub.DistributedTask.WebApi;
+using GitHub.DistributedTask.WebApi;
 using GitHub.Runner.Listener;
 using GitHub.Runner.Listener.Configuration;
 using GitHub.Runner.Common.Util;
 using GitHub.Services.WebApi;
 using Moq;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -46,7 +44,7 @@ namespace GitHub.Runner.Common.Tests.Listener.Configuration
         private int _defaultRunnerGroupId = 1;
         private int _secondRunnerGroupId = 2;
         private RSACryptoServiceProvider rsa = null;
-        private RunnerSettings _configMgrAgentSettings = new RunnerSettings();
+        private RunnerSettings _configMgrAgentSettings = new();
 
         public ConfigurationManagerL0()
         {
@@ -115,7 +113,7 @@ namespace GitHub.Runner.Common.Tests.Listener.Configuration
 
         private TestHostContext CreateTestContext([CallerMemberName] String testName = "")
         {
-            TestHostContext tc = new TestHostContext(this, testName);
+            TestHostContext tc = new(this, testName);
             tc.SetSingleton<ICredentialManager>(_credMgr.Object);
             tc.SetSingleton<IPromptManager>(_promptManager.Object);
             tc.SetSingleton<IConfigurationStore>(_store.Object);

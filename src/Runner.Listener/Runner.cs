@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -29,7 +28,7 @@ namespace GitHub.Runner.Listener
         private IMessageListener _listener;
         private ITerminal _term;
         private bool _inConfigStage;
-        private ManualResetEvent _completedCommand = new ManualResetEvent(false);
+        private ManualResetEvent _completedCommand = new(false);
 
         public override void Initialize(IHostContext hostContext)
         {
@@ -497,16 +496,26 @@ namespace GitHub.Runner.Listener
                                 else
                                 {
                                     var messageRef = StringUtil.ConvertFromJson<RunnerJobRequestRef>(message.Body);
+                                    Pipelines.AgentJobRequestMessage jobRequestMessage = null;
 
                                     // Create connection
                                     var credMgr = HostContext.GetService<ICredentialManager>();
                                     var creds = credMgr.LoadCredentials();
 
-                                    var runServer = HostContext.CreateService<IRunServer>();
-                                    await runServer.ConnectAsync(new Uri(settings.ServerUrl), creds);
-                                    var jobMessage = await runServer.GetJobMessageAsync(messageRef.RunnerRequestId, messageQueueLoopTokenSource.Token);
+                                    if (string.IsNullOrEmpty(messageRef.RunServiceUrl))
+                                    {
+                                        var actionsRunServer = HostContext.CreateService<IActionsRunServer>();
+                                        await actionsRunServer.ConnectAsync(new Uri(settings.ServerUrl), creds);
+                                        jobRequestMessage = await actionsRunServer.GetJobMessageAsync(messageRef.RunnerRequestId, messageQueueLoopTokenSource.Token);
+                                    }
+                                    else
+                                    {
+                                        var runServer = HostContext.CreateService<IRunServer>();
+                                        await runServer.ConnectAsync(new Uri(messageRef.RunServiceUrl), creds);
+                                        jobRequestMessage = await runServer.GetJobMessageAsync(messageRef.RunnerRequestId, messageQueueLoopTokenSource.Token);
+                                    }
 
-                                    jobDispatcher.Run(jobMessage, runOnce);
+                                    jobDispatcher.Run(jobRequestMessage, runOnce);
                                     if (runOnce)
                                     {
                                         Trace.Info("One time used runner received job message.");

@@ -4,7 +4,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using GitHub.DistributedTask.Logging;
 using GitHub.Runner.Common;
 using GitHub.Runner.Sdk;
 
@@ -12,7 +11,7 @@ namespace GitHub.Runner.Listener
 {
     public sealed class CommandSettings
     {
-        private readonly Dictionary<string, string> _envArgs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _envArgs = new(StringComparer.OrdinalIgnoreCase);
         private readonly CommandLineParser _parser;
         private readonly IPromptManager _promptManager;
         private readonly Tracing _trace;
@@ -27,7 +26,7 @@ namespace GitHub.Runner.Listener
         };
 
         // Valid flags and args for specific command - key: command, value: array of valid flags and args
-        private readonly Dictionary<string, string[]> validOptions = new Dictionary<string, string[]>
+        private readonly Dictionary<string, string[]> validOptions = new()
         {
             // Valid configure flags and args
             [Constants.Runner.CommandLine.Commands.Configure] = 
@@ -138,7 +137,7 @@ namespace GitHub.Runner.Listener
         // Validate commandline parser result
         public List<string> Validate()
         {
-            List<string> unknowns = new List<string>();
+            List<string> unknowns = new();
 
             // detect unknown commands
             unknowns.AddRange(_parser.Commands.Where(x => !validOptions.Keys.Contains(x, StringComparer.OrdinalIgnoreCase)));
