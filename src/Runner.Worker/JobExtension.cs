@@ -493,7 +493,7 @@ namespace GitHub.Runner.Worker
                             // Populate env context for each step
                             Trace.Info("Initialize Env context for evaluating job outputs");
 
-                            // NOTE: jobs outputs are evaluated here. Basically, this where TaintContext must process job outputs
+                            // HACK: jobs outputs are evaluated here. Basically, this where TaintContext must process job outputs
                             jobContext.TaintContext.AddJobOutputs(message.JobOutputs);
 
                             var outputs = templateEvaluator.EvaluateJobOutput(message.JobOutputs, context.ExpressionValues, context.ExpressionFunctions);
@@ -513,14 +513,8 @@ namespace GitHub.Runner.Worker
 
                                 context.Output($"Set output '{output.Key}'");
                                 jobContext.JobOutputs[output.Key] = output.Value;
-                                // if (jobContext.TaintContext.JobOutputs[output.Key].Tainted) {
-                                //     context.Output($"Detected tainted output '{output.Key}'");
-                                //     jobContext.JobOutputs["tainted_"+output.Key] = output.Value;
-                                // }
                                 
                             }
-                            // NOTE: sotring job outputs and artifacts
-                            jobContext.TaintContext.SaveJobTaintContext();
                         }
                         catch (Exception ex)
                         {
@@ -582,6 +576,9 @@ namespace GitHub.Runner.Worker
                         }
                     }
 
+                    // HACK: saving job outputs and artifacts
+                    jobContext.TaintContext.SaveJobTaintContext();
+                    
                     if (_processCleanup)
                     {
                         context.Output("Cleaning up orphan processes");
