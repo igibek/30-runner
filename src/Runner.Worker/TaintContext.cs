@@ -14,6 +14,32 @@ using Newtonsoft.Json;
 
 namespace GitHub.Runner.Worker {
 
+    public class TaintFileName {
+        // step__{run_id}__{workflow}__{job}__{context_name}__inputs.json
+        public static readonly string StepInputFileName = "step__{0}__{1}__{2}__{3}_inputs.json";
+        // step__{run_id}__{workflow}__{job}__{context_name}__outputs.json
+        public static readonly string StepOutputFileName = "step__{0}__{1}__{2}__outputs.json";
+        // job__{run_id}__{workflow}__{job}.json
+        public static readonly string JobOutputFileName = "job__{0}__{1}.json";
+
+        public static string GenerateStepInputFilename(string runnerId, string workflow, string jobName, string contextName, string scopeName = null) {
+            if (String.IsNullOrEmpty(scopeName)) {
+                return String.Format(TaintFileName.StepInputFileName, runnerId, workflow, jobName, contextName);
+            }
+            return String.Format(TaintFileName.StepInputFileName, runnerId, workflow, jobName, contextName + "__" + scopeName);
+        }
+
+        public static string GenerateStepOutputFilename(string runnerId, string workflow, string jobName, string contextName, string scopeName = null) {
+            if (String.IsNullOrEmpty(scopeName)) {
+                return String.Format(TaintFileName.StepOutputFileName, runnerId, workflow, jobName, contextName);
+            }
+            return String.Format(TaintFileName.StepOutputFileName, runnerId, workflow, jobName, contextName + "__" + scopeName);
+        }
+
+        public static string GenerateJobFilename(string runnerId, string workflow, string jobName) {
+            return String.Format(TaintFileName.JobOutputFileName, runnerId, workflow, jobName);
+        }
+    }
     public class TaintContext : RunnerService
     {
 
@@ -53,11 +79,10 @@ namespace GitHub.Runner.Worker {
         public static string TaintDirectory {get; private set; } = "_taint";
         public static string RepositoryDirectory {get; private set; } = string.Empty;
         public static TaintEvent Event {get; private set; } = null;
-        // step__{run_id}__{job}__{step id}.json
-        public const string StepInputFileName = "step__{0}__{1}__{2}__input.json";
-        public const string StepOutputFileName = "step__{0}__{1}__{2}__output.json";
-        // job__{run_id}__{job}.json
-        public const string JobOutputFileName = "job__{0}__{1}.json";
+        public static string WorkflowFilePath { get; private set; }
+        public static string JobName { get; private set; }
+
+        
 
         public bool IsEmbedded {get; private set; }
         public bool DependOnSecret { get; private set; } = false;
@@ -96,6 +121,8 @@ namespace GitHub.Runner.Worker {
             Secrets = new Dictionary<string, string>();
             Values = new HashSet<string>();
             PreviousJobs = new Dictionary<string, TaintVariable>();
+            WorkflowFilePath = ExecutionContext.Global.Variables.Get("system.workflowFilePath");
+            JobName = ExecutionContext.Global.Variables.Get("system.github.job");
         }
 
         public void AddEnvironmentVariables(TemplateToken token)
@@ -392,8 +419,6 @@ namespace GitHub.Runner.Worker {
         }
         public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
             
-            InitializeEvent();
-            
             if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
                 Root.Files.Add(path);
             }
@@ -425,14 +450,17 @@ namespace GitHub.Runner.Worker {
             });
 
             string moduleName = GetModuleName(executionType);
+            string workflow = Path.GetFileNameWithoutExtension(WorkflowFilePath);
 
-            string workflow = Path.GetFileNameWithoutExtension(Event.Workflow);
-            string fileName = String.Format("{0}__{1}__{2}__{3}.json", ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.Id.ToString());
-            string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
+            string inputFileName = TaintFileName.GenerateStepInputFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.ContextName, ExecutionContext.ScopeName);
+            string outputFileName = TaintFileName.GenerateStepOutputFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.ContextName, ExecutionContext.ScopeName);
 
-            File.WriteAllText(filePath, contents);
+            string inputFilePath = Path.Combine(TaintContext.RepositoryDirectory, inputFileName);
+            string outputFilePath = Path.Combine(TaintContext.RepositoryDirectory, outputFileName);
 
-            string arguments = String.Format("--path={0}", filePath);
+            File.WriteAllText(inputFilePath, contents);
+
+            string arguments = String.Format("--input={0} --output={1}", inputFilePath, outputFilePath);
 
             var environments = new Dictionary<string, string>();
 
@@ -445,8 +473,6 @@ namespace GitHub.Runner.Worker {
         }
 
         public void SaveJobTaintContext() {
-            
-            InitializeEvent();
             
             var outputs = new Dictionary<string, TaintVariable>();
             foreach (var item in Root.JobOutputs) {
@@ -465,15 +491,15 @@ namespace GitHub.Runner.Worker {
                 JobOutputs = outputs,
                 Artifacts = artifacts
             });
-            
-            string fileName = String.Format("{0}__{1}__{2}__results.json", Event.Workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.GetGitHubContext("run_id"));
+            string workflow = Path.GetFileNameWithoutExtension(WorkflowFilePath);
+            string fileName = TaintFileName.GenerateJobFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"));
             string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
             File.WriteAllText(filePath, content);
         }
 
         public void RestoreJobTaintContext(string jobName) {
-            InitializeEvent();
-            string fileName = String.Format("{0}__{1}__{2}__results.json", ExecutionContext.GetGitHubContext("run_id"), Event.Workflow, jobName);
+            
+            string fileName = String.Format("{0}__{1}__{2}__results.json", ExecutionContext.GetGitHubContext("run_id"), WorkflowFilePath, jobName);
             string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
             // restore the JobTaintContext of the {jobName}
             if (File.Exists(filePath)) {
