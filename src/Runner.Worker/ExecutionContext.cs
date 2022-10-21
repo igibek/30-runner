@@ -681,9 +681,7 @@ namespace GitHub.Runner.Worker
 
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(token);
             
-            // Taint Context
-            TaintContext = new TaintContext(this);
-            TaintContext.InitialSetup(HostContext);
+
             Global = new GlobalContext();
             
             // Plan
@@ -808,6 +806,10 @@ namespace GitHub.Runner.Worker
 
             // Hook up JobServerQueueThrottling event, we will log warning on server tarpit.
             _jobServerQueue.JobServerQueueThrottling += JobServerQueueThrottling_EventReceived;
+
+            // Taint Context
+            TaintContext = new TaintContext(this);
+            TaintContext.InitialSetup(HostContext);
         }
 
         // Do not add a format string overload. In general, execution context messages are user facing and
