@@ -80,7 +80,7 @@ namespace GitHub.Runner.Worker
             ActionExecutionData handlerData = definition.Data?.Execution;
             ArgUtil.NotNull(handlerData, nameof(handlerData));
 
-            // NOTE: not only inputs but also step outputs must be catched here 
+            // HACK: not only inputs but also step outputs must be catched here 
             // if they are Script type
             // Order is important if we want to catch tainted environment variables
             ExecutionContext.TaintContext.AddEnvironmentVariables(Action.Environment);
@@ -216,8 +216,9 @@ namespace GitHub.Runner.Worker
             {
                 var manifestManager = HostContext.GetService<IActionManifestManager>();
 
-                // NOTE: adding default values into TaintContext
+                // HACK: adding actions default values into TaintContext
                 ExecutionContext.TaintContext.AddInputs(definition.Data.Inputs);
+
                 foreach (var input in definition.Data.Inputs)
                 {
                     string key = input.Key.AssertString("action input name").Value;
@@ -268,11 +269,11 @@ namespace GitHub.Runner.Worker
                 environment[$"STATE_{state.Key}"] = state.Value ?? string.Empty;
             }
 
-            // NOTE: adding evaluated values to TaintContext
+            // HACK: adding evaluated input values to TaintContext
             ExecutionContext.TaintContext.AddEvaluatedInputs(inputs);
-            // NOTE: adding evaluated environment values into TaintContext
+            // HACK: adding evaluated environment values into TaintContext
             ExecutionContext.TaintContext.AddEvaluatedEnvironments(environment);
-            // NOTE: checking the artifact
+            // HACK: checking the artifact actions are used. If the answer is yes, we will mark it
             string action_ref = ExecutionContext.GetGitHubContext("action_ref");
             if (action_ref == "actions/upload-artifact") {
                 Trace.Warning("actions/upload-artifact detected");

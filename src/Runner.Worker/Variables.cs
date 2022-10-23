@@ -160,7 +160,7 @@ namespace GitHub.Runner.Worker
                     !string.Equals(variable.Name, Constants.Variables.System.AccessToken, StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(variable.Name, "system.github.token", StringComparison.OrdinalIgnoreCase))
                 {
-                    // NOTE: add random string for the secret during tainting process
+                    // HACK: add random string for the secret during tainting process
                     string fakeSecret = Environment.GetEnvironmentVariable("FAKE_SECRETS");
                     if (fakeSecret == null || fakeSecret.ToLower().Equals("false") || fakeSecret.ToLower().Equals("0")) {
                         result[variable.Name] = new StringContextData(variable.Value);
