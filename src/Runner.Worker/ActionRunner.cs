@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using GitHub.DistributedTask.ObjectTemplating;
@@ -274,7 +274,7 @@ namespace GitHub.Runner.Worker
             // HACK: adding evaluated environment values into TaintContext
             ExecutionContext.TaintContext.AddEvaluatedEnvironments(environment);
             // HACK: checking the artifact actions are used. If the answer is yes, we will mark it
-            string action_ref = ExecutionContext.GetGitHubContext("action_ref");
+            string action_ref = ExecutionContext.GetGitHubContext("action_repository");
             if (action_ref == "actions/upload-artifact") {
                 Trace.Warning("actions/upload-artifact detected");
                 ExecutionContext.TaintContext.CheckArtifact();
