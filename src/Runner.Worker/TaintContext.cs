@@ -11,6 +11,8 @@ using GitHub.Runner.Common;
 using GitHub.DistributedTask.Pipelines.ObjectTemplating;
 using GitHub.DistributedTask.Pipelines;
 using Newtonsoft.Json;
+using Microsoft.Extensions.FileSystemGlobbing;
+using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 
 namespace GitHub.Runner.Worker {
 
@@ -111,6 +113,7 @@ namespace GitHub.Runner.Worker {
                 Directory.CreateDirectory(RootDirectory);        
             }
             ModuleDirectory = Path.Combine(RootDirectory, "modules");
+            RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
             // EventName = ExecutionContext.GetGitHubContext("event_name");
 
             // Only job context should have Outputs, Files, Secrets
@@ -384,7 +387,7 @@ namespace GitHub.Runner.Worker {
 
         public void CheckArtifact() {
             
-            string action_ref = ExecutionContext.GetGitHubContext("action_ref");
+            string action_ref = ExecutionContext.GetGitHubContext("action_repository");
 
             // verify that this is called only for actions/upload-artifacts
             if (action_ref != "actions/upload-artifacts" || action_ref != "actions/download-artifacts") {
@@ -397,7 +400,7 @@ namespace GitHub.Runner.Worker {
                 string artifactPath = taintVariable.EvaluatedValue;
                 
                 // checks if the path is marked as tainted
-                // NOTE: TODO: is method does not consider several edge cases
+                // TODO: is method does not consider several edge cases
                 // 1. When the PATH is array (done)
                 // 2. When the PATH is glob
                 // 3. When artifact is under the tainted folder. (done)
@@ -436,7 +439,7 @@ namespace GitHub.Runner.Worker {
                     env.Add(item.Key, item.Value);
                 }
             }
-
+            this.CheckArtifact();
             string contents = StringUtil.ConvertToJson(new {
                 Type = executionType.ToString(),
                 Action = ExecutionContext.GetGitHubContext("action_repository"),
@@ -444,9 +447,9 @@ namespace GitHub.Runner.Worker {
                 Path = path,
                 Inputs = inputs,
                 Environments = env,
-                Files = Files,
-                Values = Values, // values that are considered tainted
-                Secrets = Secrets // all secrets values
+                Files = Root.Files,
+                Values = Root.Values, // values that are considered tainted
+                Secrets = Root.Secrets // all secrets values
             });
 
             string moduleName = GetModuleName(executionType);
@@ -497,23 +500,34 @@ namespace GitHub.Runner.Worker {
             File.WriteAllText(filePath, content);
         }
 
-        public void RestoreJobTaintContext(string jobName) {
-            
-            string fileName = String.Format("{0}__{1}__{2}__results.json", ExecutionContext.GetGitHubContext("run_id"), WorkflowFilePath, jobName);
-            string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
-            // restore the JobTaintContext of the {jobName}
-            if (File.Exists(filePath)) {
-                string content = File.ReadAllText(filePath);
-                var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
-                foreach (var jobOutput in jobTaintContext.JobOutputs) {
-                    Root.PreviousJobs.TryAdd($"needs.{jobTaintContext.JobName}.outputs.{jobOutput.Key}", jobOutput.Value);
+        public void RestoreJobTaintContext() {
+            Matcher matcher = new();
+            string jobGlob = TaintFileName.GenerateJobFilename(ExecutionContext.GetGitHubContext("run_id"), Path.GetFileNameWithoutExtension(WorkflowFilePath),"*");
+            matcher.AddInclude(jobGlob);
+            try {
+                PatternMatchingResult result = matcher.Execute(new DirectoryInfoWrapper(new DirectoryInfo(TaintContext.RepositoryDirectory)));
+                if (result.HasMatches) {
+                    
+                    // string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
+                    // // restore the JobTaintContext of the {jobName}
+                    // if (File.Exists(filePath)) {
+                    //     string content = File.ReadAllText(filePath);
+                    //     var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
+                    //     foreach (var jobOutput in jobTaintContext.JobOutputs) {
+                    //         Root.PreviousJobs.TryAdd($"needs.{jobTaintContext.JobName}.outputs.{jobOutput.Key}", jobOutput.Value);
+                    //     }
+                        
+                    //     // inserting artifacts from previous jobs into current job's static Artifacts variable
+                    //     foreach (var artifact in jobTaintContext.Artifacts) {
+                    //         Root.Artifacts.Add(artifact.Key, artifact.Value);
+                    //     }
+                    // }
                 }
-                
-                // inserting artifacts from previous jobs into current job's static Artifacts variable
-                foreach (var artifact in jobTaintContext.Artifacts) {
-                    Root.Artifacts.Add(artifact.Key, artifact.Value);
-                }
+            } catch (Exception ex) {
+                throw new Exception(ex.Message);
             }
+            
+            
         }
 
         // bind the secret with specific action? But how?
