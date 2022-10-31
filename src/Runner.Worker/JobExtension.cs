@@ -497,6 +497,10 @@ namespace GitHub.Runner.Worker
                             jobContext.TaintContext.AddJobOutputs(message.JobOutputs);
 
                             var outputs = templateEvaluator.EvaluateJobOutput(message.JobOutputs, context.ExpressionValues, context.ExpressionFunctions);
+
+                            // HACK: adding evaluated value for the job outputs
+                            jobContext.TaintContext.AddEvaluatedJobOutputs(outputs);
+                            
                             foreach (var output in outputs)
                             {
                                 if (string.IsNullOrEmpty(output.Value))
