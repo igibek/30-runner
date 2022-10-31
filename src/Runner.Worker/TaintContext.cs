@@ -494,8 +494,24 @@ namespace GitHub.Runner.Worker {
             _invoker.OutputDataReceived += OnDataReceived;
             _invoker.ErrorDataReceived += OnErrorReceived;
             
+            var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
             
-            return await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
+            var moduleOutput = JsonConvert.DeserializeObject<ModuleExecutionOutput>(File.ReadAllText(outputFilePath));
+
+            foreach (var value in moduleOutput.Values) {
+                Root.Values.Add(value);
+            }
+
+            foreach(var secret in moduleOutput.Secrets) {
+                Root.Values.Add(secret);
+            }
+
+            foreach (var output in moduleOutput.Outputs) {
+                string key = $"{ExecutionContext.ContextName}.${output.Key}";
+                Root.StepOutputs.Add(key, output.Value);
+            }
+
+            return result;
         }
 
         public void SaveJobTaintContext() {
@@ -704,6 +720,14 @@ namespace GitHub.Runner.Worker {
         public string JobName {get; set; }
         public Dictionary<string, TaintVariable> Artifacts {get; set; }
         public Dictionary<string, TaintVariable> JobOutputs {get; set; }
+    }
 
+    public class ModuleExecutionOutput {
+        public Dictionary<string, TaintVariable> Outputs {get; set; }
+        public Dictionary<string, TaintVariable> Environmnets {get; set; }
+        public HashSet<string> Values {get; set; }
+        public HashSet<string> Files {get; set; }
+        public HashSet<string> Secrets {get; set; }
+        
     }
 }
