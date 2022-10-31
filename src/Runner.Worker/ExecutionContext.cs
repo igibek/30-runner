@@ -810,6 +810,7 @@ namespace GitHub.Runner.Worker
             // Taint Context
             TaintContext = new TaintContext(this);
             TaintContext.InitialSetup(HostContext);
+            TaintContext.RestoreJobTaintContext();
         }
 
         // Do not add a format string overload. In general, execution context messages are user facing and

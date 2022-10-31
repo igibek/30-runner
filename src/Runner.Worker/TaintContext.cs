@@ -215,6 +215,18 @@ namespace GitHub.Runner.Worker {
             }
         }
 
+        public void AddEvaluatedJobOutputs(Dictionary<string, string> outputs) {
+            foreach (var output in outputs) {
+                if (Root.JobOutputs.TryGetValue(output.Key, out TaintVariable variable)) {
+                    Root.JobOutputs[output.Key].EvaluatedValue = output.Value;
+                    if (variable.Tainted) {
+                        Trace.Info($"Adding job output key-value. Key: {output.Key}, Value: {output.Value}");
+                        Root.Values.Add(output.Value);
+                    }
+                }
+            }
+        }
+
         public bool UpdateJobOutputsWithValue(string key, string value) {
             if (Root.JobOutputs.TryGetValue(key, out TaintVariable variable)) {
                 Root.JobOutputs[key].EvaluatedValue = value;
@@ -351,11 +363,13 @@ namespace GitHub.Runner.Worker {
 
         public bool IsTaintedJobOutput(string value)
         {
+            // TODO: reusable workflow uses different contexts jobs.<id>.outputs.<name>
             string regexPattern = @"needs\.[a-zA-Z0-9]+\.outputs\.[a-zA-Z0-9]+";
             Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
             MatchCollection matches = regex.Matches(value);
             foreach(var match in matches) {
                 string reference = match.ToString();
+                reference = reference.Replace("needs.", "").Replace("outputs.", "");
                 // root TaintContext belongs to Job
                 if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
                     if (taintVariable.Tainted) {
@@ -368,13 +382,22 @@ namespace GitHub.Runner.Worker {
         }
 
         public bool IsTaintedStepOutput(string value) {
-            // NOTE: TODO: implement step output
-            string regexPattern = @"steps.\[a-zA-Z0-9]+\.outputs\.\[a-zA-Z0-9]+";
+            // TODO: implement step output for non conventional step output form
+            // "steps['{stepName}']['outputs']['{outputName}']"
+            
+            string regexPattern = @"steps.\[a-zA-Z0-9]+\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
             Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
             MatchCollection matchCollection = regex.Matches(value);
-
             foreach (var match in matchCollection) {
                 string reference = match.ToString();
+                var parts = reference.Split(".");
+                
+                if (parts.Length != 4) {
+                    continue;
+                }
+
+                reference = $"{parts[1]}.{parts[3]}";
+
                 if (Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable)) {
                     if (taintVariable.Tainted) {
                         return true;
@@ -505,29 +528,28 @@ namespace GitHub.Runner.Worker {
             string jobGlob = TaintFileName.GenerateJobFilename(ExecutionContext.GetGitHubContext("run_id"), Path.GetFileNameWithoutExtension(WorkflowFilePath),"*");
             matcher.AddInclude(jobGlob);
             try {
+                var files = matcher.GetResultsInFullPath(TaintContext.RepositoryDirectory);
                 PatternMatchingResult result = matcher.Execute(new DirectoryInfoWrapper(new DirectoryInfo(TaintContext.RepositoryDirectory)));
                 if (result.HasMatches) {
-                    
-                    // string filePath = Path.Combine(TaintContext.RepositoryDirectory, fileName);
-                    // // restore the JobTaintContext of the {jobName}
-                    // if (File.Exists(filePath)) {
-                    //     string content = File.ReadAllText(filePath);
-                    //     var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
-                    //     foreach (var jobOutput in jobTaintContext.JobOutputs) {
-                    //         Root.PreviousJobs.TryAdd($"needs.{jobTaintContext.JobName}.outputs.{jobOutput.Key}", jobOutput.Value);
-                    //     }
-                        
-                    //     // inserting artifacts from previous jobs into current job's static Artifacts variable
-                    //     foreach (var artifact in jobTaintContext.Artifacts) {
-                    //         Root.Artifacts.Add(artifact.Key, artifact.Value);
-                    //     }
-                    // }
+                    foreach (var file in files) {
+                        string content = File.ReadAllText(file);
+                        var jobTaintContext = JsonConvert.DeserializeObject<JobTaintContext>(content);
+                        foreach (var jobOutput in jobTaintContext.JobOutputs) {
+                            Root.PreviousJobs.Add($"{jobTaintContext.JobName}.${jobOutput.Key}", jobOutput.Value);
+                            // adding evaluated values to the global values
+                            Root.Values.Add(jobOutput.Value.EvaluatedValue);
+                        }
+                        foreach (var artifact in jobTaintContext.Artifacts) {
+                            /* TODO: need to store the artifacts from previous jobs in separate property
+                             * because it is possible to overwrite the existing artifacts
+                             */
+                            Root.Artifacts.Add(artifact.Key, artifact.Value);
+                        }
+                    }
                 }
             } catch (Exception ex) {
                 throw new Exception(ex.Message);
             }
-            
-            
         }
 
         // bind the secret with specific action? But how?
@@ -607,12 +629,7 @@ namespace GitHub.Runner.Worker {
             ExecutionContext.Error(line);
         }
 
-        private void InitializeEvent() {
-            if (Event == null) {
-                Event = JsonConvert.DeserializeObject<TaintEvent>(ExecutionContext.GetGitHubContext("event"));
-            }
-        }
-
+        /***/
         private string GetModuleName(ActionExecutionType executionType) {
             string moduleName = String.Empty;
             
