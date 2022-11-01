@@ -281,7 +281,7 @@ namespace GitHub.Runner.Worker.Handlers
             if (IsActionStep)
             {
                 // Script is written to local path (ie host) but executed relative to the StepHost, which may be a container
-                File.WriteAllText(scriptFilePath, contents, encoding);
+                File.WriteAllText(scriptFilePath, contents, encoding); // TODO: replace the contents?
             }
 
             // Prepend PATH
