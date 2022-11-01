@@ -141,6 +141,11 @@ namespace GitHub.Runner.Worker
             var pairs = new EnvFileKeyValuePairs(context, filePath);
             foreach (var pair in pairs)
             {
+                // set_env command sets/override global environment variable
+                // therefore, it should be taint tracked also
+                if (context.TaintContext.Root.Values.Contains(pair.Value)) {
+                    
+                }
                 SetEnvironmentVariable(context, pair.Key, pair.Value);
             }
         }
@@ -267,6 +272,12 @@ namespace GitHub.Runner.Worker
             {
                 context.SetOutput(pair.Key, pair.Value, out var reference);
                 context.Debug($"Set output {pair.Key} = {pair.Value}");
+                // HACK: if the output is tainted add into Tainted step outputs
+                // TODO: refactor for secret detection
+                if (context.TaintContext.Values.Contains(pair.Value)) {
+                    // TODO: compare the precision of the taint tracker
+                    context.TaintContext.Root.StepOutputs.Add(pair.Key, new TaintVariable(pair.Value, true, false));
+                }
             }
         }
     }
