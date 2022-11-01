@@ -1,4 +1,10 @@
 // wrapper.py --input=<path to the input> --output=<path to the output file>
+// foo = 123
+// echo ${{github.inputs.foo}}
+// 8c342eb8-30ce-4632-9402-a398b71ef813.sh 
+// echo 123 
+// echo $INPUT_FOO
+// core.getInput("foo")
 {
     "type": "Script",
     "action": "",
@@ -34,13 +40,3 @@
         "etc"
     ]
 }
-
-// foo = 123
-
-// echo ${{github.inputs.foo}}
-// 8c342eb8-30ce-4632-9402-a398b71ef813.sh 
-// echo 123 
-// echo $INPUT_FOO
-
-
-// core.getInput("foo")

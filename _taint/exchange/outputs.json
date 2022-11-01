@@ -1,0 +1,24 @@
+{
+    "outputs": {
+        "OUTPUT-NAME1": {
+            "tainted": true,
+            "secret": true,
+            "value": "expression/tempplate string", // you can ignore this if you want, but you do this it will be cool
+            "evaluatedValue": "real evaluated value" // you can ignore this if you want, but you do this it will be cool
+        }
+    },
+    "environments": {
+        "ENV1": {
+            "tainted": true,
+            "secret": true,
+            "value": "expression/tempplate string", // you can ignore this if you want, but you do this it will be cool
+            "evaluatedValue": "real evaluated value" // you can ignore this if you want, but you do this it will be cool
+        }
+    },
+    "files": [
+        "list of all tainted files created inside the plugin"
+    ],
+    "sinks": [
+        "list of all the sinks reached inside the plugin"
+    ]
+}
