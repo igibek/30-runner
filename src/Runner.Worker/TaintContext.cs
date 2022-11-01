@@ -380,24 +380,26 @@ namespace GitHub.Runner.Worker {
         // 2. jobs.<job-name>.outputs.<output-name> (inside reusable workflows)
         public bool IsTaintedJobOutput(string value)
         {
-            // TODO: reusable workflow uses different contexts jobs.<id>.outputs.<name>
-            string regexPattern = @"needs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
-            Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
-            MatchCollection matches = regex.Matches(value);
-            foreach(var match in matches) {
-                string reference = match.ToString();
-                var parts = reference.Split(".");
-                if (parts.Length != 4) {
-                    continue;
-                }
-                reference = $"{parts[1]}.{parts[3]}";
+            string [] patterns = { @"needs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*", @"jobs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*" };
 
-                // root TaintContext belongs to Job
-                if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
-                    if (taintVariable.Tainted) {
-                        return true;
+            foreach (var pattern in patterns) {
+                Regex regex = new Regex(pattern, RegexOptions.Compiled);
+                MatchCollection matches = regex.Matches(value);
+                foreach(var match in matches) {
+                    string matchStr = match.ToString();
+                    var parts = matchStr.Split(".");
+                    if (parts.Length != 4) {
+                        continue;
+                    }
+                    string reference = $"{parts[1]}.{parts[3]}";
+                    // TODO: collision of references is possible because of reusable workflows
+                    if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
+                        if (taintVariable.Tainted) {
+                            return true;
+                        }
                     }
                 }
+                break; // TODO: remove this only after reusable workflows are tested. This basically, ignores reusable workflows
             }
             
             return false;
@@ -433,6 +435,10 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
+        // TODO: reimplement or just delete this method
+        // This method checks if the artifact is being uploaded/downloaded is tainted
+        // However, this function covers ONLY when the artifact is uploaded and downloaded by using well-known GitHub action
+        // Basically, the proper way of detecting if the artifact is tainted is by setting up the MitM proxy and catch the request
         public void CheckArtifact() {
             
             string action_ref = ExecutionContext.GetGitHubContext("action_repository");
@@ -441,6 +447,9 @@ namespace GitHub.Runner.Worker {
             if (action_ref != "actions/upload-artifacts" || action_ref != "actions/download-artifacts") {
                 return;
             }
+
+            Trace.Warning("actions/upload-artifact detected");
+            
             // iterate through the actions/upload-artifacts inputs 
             // checks it agains global files field
             if (Inputs.TryGetValue("path", out TaintVariable taintVariable)) {

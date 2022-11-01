@@ -271,14 +271,13 @@ namespace GitHub.Runner.Worker
 
             // HACK: adding evaluated input values to TaintContext
             ExecutionContext.TaintContext.AddEvaluatedInputs(inputs);
+
             // HACK: adding evaluated environment values into TaintContext
             ExecutionContext.TaintContext.AddEvaluatedEnvironments(environment);
+
             // HACK: checking the artifact actions are used. If the answer is yes, we will mark it
-            string action_ref = ExecutionContext.GetGitHubContext("action_repository");
-            if (action_ref == "actions/upload-artifact") {
-                Trace.Warning("actions/upload-artifact detected");
-                ExecutionContext.TaintContext.CheckArtifact();
-            }
+            // TODO: remove this check because it does not cover everything. More details why here: class TaintContext.CheckArtifact()
+            ExecutionContext.TaintContext.CheckArtifact();
             
             // Create the handler.
             IHandler handler = handlerFactory.Create(
