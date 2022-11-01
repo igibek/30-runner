@@ -96,7 +96,7 @@ namespace GitHub.Runner.Worker {
         */
         public HashSet<string> Values {get; private set; }
         public HashSet<string> Files {get; private set; }
-        public Dictionary<string, string> Secrets {get; private set; }
+        public HashSet<string> Secrets {get; private set; }
         public Dictionary<string, TaintVariable> StepOutputs { get; private set; }
         public Dictionary<string, TaintVariable> JobOutputs {get; private set; }
         public Dictionary<string, TaintVariable> Artifacts { get; private set; }
@@ -121,7 +121,7 @@ namespace GitHub.Runner.Worker {
             JobOutputs = new Dictionary<string, TaintVariable>();
             Artifacts = new Dictionary<string, TaintVariable>();
             Files = new HashSet<string>();
-            Secrets = new Dictionary<string, string>();
+            Secrets = new HashSet<string>();
             Values = new HashSet<string>();
             PreviousJobs = new Dictionary<string, TaintVariable>();
             WorkflowFilePath = ExecutionContext.Global.Variables.Get("system.workflowFilePath");
@@ -153,6 +153,8 @@ namespace GitHub.Runner.Worker {
 
         public void AddInputs(TemplateToken token)
         {
+            // TODO: bash taint tracking is quite weird
+            // how we can add the bash taint tracker add evaluate the value
             Trace.Info("Adding inputs");
             if (token == null) return;
             var mapping = token.AssertMapping("taint inputs");
@@ -175,7 +177,7 @@ namespace GitHub.Runner.Worker {
                 // TODO: get the secret name
                 // TBH I do NOT know why I added it here.
                 // Currently we can get the all the secrets from inputs.
-                Root.Secrets.TryAdd(key, value);
+                Root.Secrets.Add(value);
             }
    
             var taintVariable = new TaintVariable(value, tainted, secret);
@@ -498,7 +500,7 @@ namespace GitHub.Runner.Worker {
                 }
             }
             this.CheckArtifact();
-            string contents = StringUtil.ConvertToJson(new {
+            string contents = StringUtil.ConvertToJson(new TaintPluginInputFile{
                 Type = executionType.ToString(),
                 Action = ExecutionContext.GetGitHubContext("action_repository"),
                 Reference = ExecutionContext.GetGitHubContext("action_ref"),
@@ -532,7 +534,7 @@ namespace GitHub.Runner.Worker {
             var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
-                var moduleOutput = JsonConvert.DeserializeObject<ModuleExecutionOutput>(File.ReadAllText(outputFilePath));
+                var moduleOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
 
                 foreach (var value in moduleOutput.Values) {
                     Root.Values.Add(value);
@@ -760,12 +762,23 @@ namespace GitHub.Runner.Worker {
         public Dictionary<string, TaintVariable> JobOutputs {get; set; }
     }
 
-    public class ModuleExecutionOutput {
-        public Dictionary<string, TaintVariable> Outputs {get; set; }
-        public Dictionary<string, TaintVariable> Environmnets {get; set; }
-        public HashSet<string> Values {get; set; }
-        public HashSet<string> Files {get; set; }
-        public HashSet<string> Secrets {get; set; }
-        
+    public class TaintPluginInputFile {
+        public string Type { get; set; }
+        public string Action { get; set; }
+        public string Reference { get; set; }
+        public string Path { get; set; }
+        public Dictionary<string, TaintVariable> Inputs { get; set; }
+        public Dictionary<string, TaintVariable> Environments { get; set; }
+        public HashSet<string> Values { get; set; }
+        public HashSet<string> Files { get; set; }
+        public HashSet<string> Secrets { get; set; }
+    }
+    public class TaintPluginOutputFile {
+        public Dictionary<string, TaintVariable> Outputs { get; set; }
+        public Dictionary<string, TaintVariable> Environmnets { get; set; }
+        public HashSet<string> Values { get; set; }
+        public HashSet<string> Files { get; set; }
+        public HashSet<string> Secrets { get; set; }
+        public HashSet<string> Sinks { get; set; }       
     }
 }
