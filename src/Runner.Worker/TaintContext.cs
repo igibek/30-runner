@@ -364,12 +364,17 @@ namespace GitHub.Runner.Worker {
         public bool IsTaintedJobOutput(string value)
         {
             // TODO: reusable workflow uses different contexts jobs.<id>.outputs.<name>
-            string regexPattern = @"needs\.[a-zA-Z0-9]+\.outputs\.[a-zA-Z0-9]+";
+            string regexPattern = @"needs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
             Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
             MatchCollection matches = regex.Matches(value);
             foreach(var match in matches) {
                 string reference = match.ToString();
-                reference = reference.Replace("needs.", "").Replace("outputs.", "");
+                var parts = reference.Split(".");
+                if (parts.Length != 4) {
+                    continue;
+                }
+                reference = $"{parts[1]}.{parts[3]}";
+
                 // root TaintContext belongs to Job
                 if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
                     if (taintVariable.Tainted) {
@@ -384,8 +389,7 @@ namespace GitHub.Runner.Worker {
         public bool IsTaintedStepOutput(string value) {
             // TODO: implement step output for non conventional step output form
             // "steps['{stepName}']['outputs']['{outputName}']"
-            
-            string regexPattern = @"steps.\[a-zA-Z0-9]+\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
+            string regexPattern = @"steps\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
             Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
             MatchCollection matchCollection = regex.Matches(value);
             foreach (var match in matchCollection) {
@@ -443,6 +447,7 @@ namespace GitHub.Runner.Worker {
             }
             
         }
+
         public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
             
             if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
@@ -496,20 +501,23 @@ namespace GitHub.Runner.Worker {
             
             var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
             
-            var moduleOutput = JsonConvert.DeserializeObject<ModuleExecutionOutput>(File.ReadAllText(outputFilePath));
+            if (File.Exists(outputFilePath)) {
+                var moduleOutput = JsonConvert.DeserializeObject<ModuleExecutionOutput>(File.ReadAllText(outputFilePath));
 
-            foreach (var value in moduleOutput.Values) {
-                Root.Values.Add(value);
-            }
+                foreach (var value in moduleOutput.Values) {
+                    Root.Values.Add(value);
+                }
 
-            foreach(var secret in moduleOutput.Secrets) {
-                Root.Values.Add(secret);
-            }
+                foreach(var secret in moduleOutput.Secrets) {
+                    Root.Values.Add(secret);
+                }
 
-            foreach (var output in moduleOutput.Outputs) {
-                string key = $"{ExecutionContext.ContextName}.${output.Key}";
-                Root.StepOutputs.Add(key, output.Value);
+                foreach (var output in moduleOutput.Outputs) {
+                    string key = $"{ExecutionContext.ContextName}.${output.Key}";
+                    Root.StepOutputs.Add(key, output.Value);
+                }
             }
+            
 
             return result;
         }
