@@ -283,16 +283,23 @@ namespace GitHub.Runner.Worker {
             }
             return false;
         }
+
+        // Detects if the string value is tainted
+        // Calls multiple tainted checks
         public bool IsTainted(string value)
         {
-            // TODO: how we can detect tainted input inside composite actions. IsTaintedInput? 
-            return IsTaintedGithub(value)|| IsTaintedEnvironment(value) || IsTaintedStepOutput(value) || IsTaintedJobOutput(value);
+            
+            return IsTaintedGithub(value) || // checks if the tainted source is used
+                    IsTaintedEnvironment(value) || // checks if the environment variable is tainted
+                    IsTaintedStepOutput(value) || // checks if the step output is tainted
+                    IsTaintedJobOutput(value) || // checks if the job output is tainted
+                    IsTaintedInput(value); // check if the composite action input is tainted
         }
 
         public bool IsTaintedEnvironment(string value)
         {
             // Used the regex from this thread: https://stackoverflow.com/questions/2821043/allowed-characters-in-linux-environment-variable-names
-            // NOTE: what about environment variables in Windows
+            // TODO: implement checks for Windows
             string [] regexPatterns = {@"\$[a-zA-Z_][a-zA-Z0-9_]*", @"env\.[a-zA-Z0-9_-]+"};
             TaintVariable taintVariable;
             bool isTainted = false;
@@ -313,13 +320,16 @@ namespace GitHub.Runner.Worker {
                         }
                         current = current._parentTaintContext; // NOTE: Should we take parent on only Job is enough. Test it on composite actions
                     }
+
+                    if (isTainted) return true;
                 }
             }
             
-
-            return isTainted;
+            return false;
         }
 
+        // Detects if the string depends on user controlled inputs.
+        // This is where we check for the initial seed of sources.
         public bool IsTaintedGithub(string value)
         {
             // get the list of tainted inputs from here: https://securitylab.github.com/research/github-actions-untrusted-input/ 
@@ -343,24 +353,31 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
+        // Detects if the string contains tainted input template string
+        // Composite actions uses the template github.inputs.<input-name> to access inputs
+        // Since the composite action can be called using tainted input, we need to check that the
         public bool IsTaintedInput(string value)
         {
-            string [] regexPatterns = { @"github\.inputs.\[a-zA-Z0-9_-]+" };
+            string [] regexPatterns = { @"github\.inputs\.[a-zA-Z0-9_-]+" };
 
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
-                // TODO: get the input name
-                string input = "";
-                TaintVariable taintVariable = null;
-                if (Inputs.TryGetValue(input, out taintVariable)) {
-                    if (taintVariable.Tainted) {
-                        return true;
+                foreach (var match in matches) {
+                    string input = match.ToString().Replace("github.input.", "");
+                    if (Inputs.TryGetValue(input, out TaintVariable taintVariable)) {
+                        if (taintVariable.Tainted) {
+                            return true;
+                        }
                     }
                 }
             }
             return false;
         }
 
+        // Detects if the string contains tainted job output template string
+        // Job outputs can be access in two different ways 
+        // 1. needs.<job-name>.outputs.<output-name> (inside regular workflows, when one job depends on another job)
+        // 2. jobs.<job-name>.outputs.<output-name> (inside reusable workflows)
         public bool IsTaintedJobOutput(string value)
         {
             // TODO: reusable workflow uses different contexts jobs.<id>.outputs.<name>
@@ -386,6 +403,10 @@ namespace GitHub.Runner.Worker {
             return false;
         }
 
+        // Detects if the string depends on tainted step output template
+        // Step output can be referenced in two ways
+        // 1. steps.<step-id>.outputs.<output-name>
+        // 2. steps[<step-id>]['outputs'][<output-name>]
         public bool IsTaintedStepOutput(string value) {
             // TODO: implement step output for non conventional step output form
             // "steps['{stepName}']['outputs']['{outputName}']"
