@@ -328,7 +328,7 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
 
-                int moduleExitCode = await ExecutionContext.TaintContext.ExecuteModule(Data.ExecutionType, ActionDirectory ?? scriptFilePath);
+                int moduleExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory ?? scriptFilePath);
                 
 
                 // Execute

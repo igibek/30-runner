@@ -526,6 +526,9 @@ namespace GitHub.Runner.Worker
             // todo: restrict multiline?
 
             Global.StepsContext.SetOutput(ScopeName, ContextName, name, value, out reference);
+            
+            // HACK: add the evaluated value of the step output
+            TaintContext.UpdateStepOutputsWithValue(name, value);
         }
 
         public void SetTimeout(TimeSpan? timeout)

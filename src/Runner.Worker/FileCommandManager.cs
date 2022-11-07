@@ -270,14 +270,15 @@ namespace GitHub.Runner.Worker
             var pairs = new EnvFileKeyValuePairs(context, filePath);
             foreach (var pair in pairs)
             {
-                context.SetOutput(pair.Key, pair.Value, out var reference);
-                context.Debug($"Set output {pair.Key} = {pair.Value}");
                 // HACK: if the output is tainted add into Tainted step outputs
                 // TODO: refactor for secret detection
-                if (context.TaintContext.Values.Contains(pair.Value)) {
-                    // TODO: compare the precision of the taint tracker
-                    context.TaintContext.Root.StepOutputs.Add(pair.Key, new TaintVariable(pair.Value, true, false));
+                if (context.TaintContext.Root.Values.Contains(pair.Value)) {
+                    string key = $"{context.GetFullyQualifiedContextName()}.{pair.Key}";
+                    context.TaintContext.Root.StepOutputs.Add(key, new TaintVariable(pair.Value, true, false));
                 }
+
+                context.SetOutput(pair.Key, pair.Value, out var reference);
+                context.Debug($"Set output {pair.Key} = {pair.Value}");
             }
         }
     }

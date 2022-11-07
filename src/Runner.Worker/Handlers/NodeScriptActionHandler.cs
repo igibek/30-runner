@@ -153,7 +153,7 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
                 // NOTE: execute the TaintModule
-                int moduleExitCode = await ExecutionContext.TaintContext.ExecuteModule(Data.ExecutionType, ActionDirectory);
+                int moduleExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory);
                 
                 // Execute the process. Exit code 0 should always be returned.
                 // A non-zero exit code indicates infrastructural failure.

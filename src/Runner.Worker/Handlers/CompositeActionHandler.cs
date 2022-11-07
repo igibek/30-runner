@@ -161,6 +161,9 @@ namespace GitHub.Runner.Worker.Handlers
 
                     embeddedSteps.Add(step);
                 }
+                
+                // HACK: inform that the TaintContext is for composite action root
+                ExecutionContext.TaintContext.IsCompositeRoot = true;
 
                 // Run embedded steps
                 await RunStepsAsync(embeddedSteps, stage);
@@ -186,6 +189,9 @@ namespace GitHub.Runner.Worker.Handlers
             // Evaluate the mapped outputs value
             if (Data.Outputs != null)
             {
+                // HACK: composite step outputs are checked here
+                ExecutionContext.TaintContext.AddCompositeStepOutputs(Data.Outputs);
+
                 // Evaluate the outputs in the steps context to easily retrieve the values
                 var actionManifestManager = HostContext.GetService<IActionManifestManager>();
 

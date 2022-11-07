@@ -85,7 +85,7 @@ namespace GitHub.Runner.Worker {
         public static string JobName { get; private set; }
 
         
-
+        public bool IsCompositeRoot {get; set; } = false;
         public bool IsEmbedded {get; private set; }
         public bool DependOnSecret { get; private set; } = false;
         public Dictionary<string, TaintVariable> EnvironmentVariables { get; private set; }
@@ -161,7 +161,7 @@ namespace GitHub.Runner.Worker {
             foreach (var pair in mapping) {
                 // TODO: type of the key and value
                 string key = pair.Key.ToString();
-                string value = pair.Value.ToString();
+                string value = pair.Value.ToString(); // BUG: what will happend if the value is of type TemplateToken
                 AddInput(key, value);
             }
         }
@@ -241,8 +241,11 @@ namespace GitHub.Runner.Worker {
         }
 
         public bool UpdateStepOutputsWithValue(string key, string value) {
-            if (Root.StepOutputs.TryGetValue(key, out TaintVariable variable)) {
-                Root.StepOutputs[key].EvaluatedValue = value;
+            
+            string reference = $"{ExecutionContext.GetFullyQualifiedContextName()}.{key}";
+
+            if (Root.StepOutputs.TryGetValue(reference, out TaintVariable variable)) {
+                Root.StepOutputs[reference].EvaluatedValue = value;
                 if (variable.Tainted) {
                     Root.Values.Add(value);
                 }
@@ -262,17 +265,33 @@ namespace GitHub.Runner.Worker {
             }
         }
 
-        public void AddStepOutputs(TemplateToken token) {
+        public void AddCompositeStepOutputs(TemplateToken token) {
             
             var mapping = token.AssertMapping("taint step outputs");
 
             foreach (var pair in mapping) {
-                string key = pair.Key.ToString();
+                string outputName = pair.Key.ToString();
+
                 string value = pair.Value.ToString();
-                var taintVariable = new TaintVariable(key, IsTainted(value), IsSecret(value));
-                Root.StepOutputs.TryAdd(key, taintVariable);
+                if (pair.Value.Type == TokenType.Mapping) {
+                    var pairMapping = pair.Value as MappingToken;
+
+                    foreach (var entry in pairMapping) {
+                        if (entry.Key.ToString() == "value") {
+                            value = entry.Value.ToString();
+                            break;
+                        }
+                    }
+                }
+                bool tainted = IsTainted(value);
+                bool secret = IsSecret(value);
+
+                var taintVariable = new TaintVariable(outputName, tainted, secret);
+                string reference = $"{ExecutionContext.GetFullyQualifiedContextName()}.{outputName}";
+                Root.StepOutputs.TryAdd(reference, taintVariable);
             }
         }
+        
 
         public bool IsSecret(string value) {
             string [] regexPatterns = { @"github\.token", @"secrets\.[a-zA-z0-9]+" };
@@ -360,12 +379,13 @@ namespace GitHub.Runner.Worker {
         // Since the composite action can be called using tainted input, we need to check that the
         public bool IsTaintedInput(string value)
         {
-            string [] regexPatterns = { @"github\.inputs\.[a-zA-Z0-9_-]+" };
+            string [] regexPatterns = { @"github\.inputs\.[a-zA-Z0-9_-]+", @"inputs\.[a-zA-Z0-9_-]+" };
 
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
                 foreach (var match in matches) {
-                    string input = match.ToString().Replace("github.input.", "");
+                    string input = match.ToString().Replace("github.inputs.", "");
+                    // for composite actions we will need to look also parents inputs
                     if (Inputs.TryGetValue(input, out TaintVariable taintVariable)) {
                         if (taintVariable.Tainted) {
                             return true;
@@ -393,8 +413,12 @@ namespace GitHub.Runner.Worker {
                     if (parts.Length != 4) {
                         continue;
                     }
+
                     string reference = $"{parts[1]}.{parts[3]}";
+
                     // TODO: collision of references is possible because of reusable workflows
+                    // Is theere a way to distinguish between reusable workflows and regular workflows? 
+                    // If yes, we can update the reference to encompass the reusable reference
                     if (Root.PreviousJobs.TryGetValue(reference, out TaintVariable taintVariable)) {
                         if (taintVariable.Tainted) {
                             return true;
@@ -418,15 +442,24 @@ namespace GitHub.Runner.Worker {
             Regex regex = new Regex(regexPattern, RegexOptions.Compiled);
             MatchCollection matchCollection = regex.Matches(value);
             foreach (var match in matchCollection) {
-                string reference = match.ToString();
-                var parts = reference.Split(".");
+                string matchStr = match.ToString();
+                var parts = matchStr.Split(".");
                 
                 if (parts.Length != 4) {
                     continue;
                 }
 
-                reference = $"{parts[1]}.{parts[3]}";
+                string reference = String.Empty;
+                // Scope name is initialized for composite actions
+                // To avoid checking for the incorrect output value from another context, 
+                // we need to include scope name if possible in the reference
+                if (IsCompositeRoot) {
+                    // HACK: dirty hack to taint propogate step output if it depends on child steps output
+                    reference = $"{ExecutionContext.GetFullyQualifiedContextName()}.";
+                }
 
+                reference += $"{parts[1]}.{parts[3]}";
+                
                 if (Root.StepOutputs.TryGetValue(reference, out TaintVariable taintVariable)) {
                     if (taintVariable.Tainted) {
                         return true;
@@ -480,7 +513,7 @@ namespace GitHub.Runner.Worker {
             
         }
 
-        public async Task<int> ExecuteModule(ActionExecutionType executionType, string path) {
+        public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
             
             if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
                 Root.Files.Add(path);
@@ -512,7 +545,7 @@ namespace GitHub.Runner.Worker {
                 Secrets = Root.Secrets // all secrets values
             });
 
-            string moduleName = GetModuleName(executionType);
+            string moduleName = GetPluginName(executionType);
             string workflow = Path.GetFileNameWithoutExtension(WorkflowFilePath);
 
             string inputFileName = TaintFileName.GenerateStepInputFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.ContextName, ExecutionContext.ScopeName);
@@ -534,18 +567,20 @@ namespace GitHub.Runner.Worker {
             var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
-                var moduleOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
+                var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
 
-                foreach (var value in moduleOutput.Values) {
+                foreach (var value in pluginOutput.Values) {
                     Root.Values.Add(value);
                 }
 
-                foreach(var secret in moduleOutput.Secrets) {
+                foreach(var secret in pluginOutput.Secrets) {
                     Root.Values.Add(secret);
                 }
 
-                foreach (var output in moduleOutput.Outputs) {
-                    string key = $"{ExecutionContext.ContextName}.${output.Key}";
+                foreach (var output in pluginOutput.Outputs) {
+                    // will store the step output with the key in <scope-name>.<step-id>.<output-name> format if the scope name is available, 
+                    // else will store the step output with the key in <step-id>.<output-name> format
+                    string key = $"{ExecutionContext.GetFullyQualifiedContextName()}.${output.Key}";
                     Root.StepOutputs.Add(key, output.Value);
                 }
             }
@@ -686,7 +721,7 @@ namespace GitHub.Runner.Worker {
         }
 
         /***/
-        private string GetModuleName(ActionExecutionType executionType) {
+        private string GetPluginName(ActionExecutionType executionType) {
             string moduleName = String.Empty;
             
             if (string.IsNullOrEmpty(RepositoryDirectory)) {
