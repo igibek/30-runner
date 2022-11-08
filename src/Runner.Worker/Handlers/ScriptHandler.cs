@@ -328,16 +328,16 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
                 // HACK: generate the script for the bash taint tracker
-                if (ExecutionContext.TaintContext.Inputs.TryGetValue("script", out TaintVariable _var)) {
-                    string content = _var.EvaluatedValue;
-                    foreach (var val in ExecutionContext.TaintContext.Root.Values) {
-                        content = content.Replace(val, "$TAINTED_VALUE");
-                    }
-                    // TODO: fix the plugin script path to be inside the temp directory
-                    string pluginScriptPath = Path.Combine(Path.GetDirectoryName(scriptFilePath), "tainted_" + Path.GetFileName(scriptFilePath));
-                    File.WriteAllText(pluginScriptPath, content);
-                    int pluginExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory ?? pluginScriptPath);
-                }
+                // if (ExecutionContext.TaintContext.Inputs.TryGetValue("script", out TaintVariable _var)) {
+                //     string content = _var.EvaluatedValue;
+                //     foreach (var val in ExecutionContext.TaintContext.Root.Values) {
+                //         content = content.Replace(val, "$TAINTED_VALUE");
+                //     }
+                //     // TODO: fix the plugin script path to be inside the temp directory
+                //     string pluginScriptPath = Path.Combine(Path.GetDirectoryName(scriptFilePath), "tainted_" + Path.GetFileName(scriptFilePath));
+                //     File.WriteAllText(pluginScriptPath, content);
+                int pluginExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory ?? scriptFilePath);
+                // }
 
                 // Execute
                 int exitCode = await StepHost.ExecuteAsync(ExecutionContext,
