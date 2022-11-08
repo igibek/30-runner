@@ -13,6 +13,7 @@ using GitHub.DistributedTask.Pipelines;
 using Newtonsoft.Json;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
+using GitHub.DistributedTask.Pipelines.ContextData;
 
 namespace GitHub.Runner.Worker {
 
@@ -112,7 +113,7 @@ namespace GitHub.Runner.Worker {
             if (!Directory.Exists(RootDirectory)) {
                 Directory.CreateDirectory(RootDirectory);        
             }
-            ModuleDirectory = Path.Combine(RootDirectory, "modules");
+            ModuleDirectory = Path.Combine(RootDirectory, "plugins");
             RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
             // EventName = ExecutionContext.GetGitHubContext("event_name");
 
@@ -295,14 +296,31 @@ namespace GitHub.Runner.Worker {
 
         public bool IsSecret(string value) {
             string [] regexPatterns = { @"github\.token", @"secrets\.[a-zA-z0-9]+" };
-
+            bool isSecret = false;
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
-                if (matches.Count > 0) {
-                    return true;
+                foreach (var match in matches) {
+                    string matchStr = match.ToString();
+                    if (matchStr == "github.token") {
+                        string token = ExecutionContext.GetGitHubContext("token");
+                        if (!String.IsNullOrEmpty(token)) {
+                            Root.Secrets.Add(token);
+                        }
+                    } else {
+                        string secretName = matchStr.Substring("secrets.".Length);
+                        var secretContext = ExecutionContext.ExpressionValues["secrets"] as DictionaryContextData;
+                        foreach(var item in secretContext) {
+                            if (item.Key == secretName) {
+                                Root.Secrets.Add(item.Value.ToString());
+                                break;
+                            }
+                        }
+                    }
+                    isSecret = true;
                 }
+                
             }
-            return false;
+            return isSecret;
         }
 
         // Detects if the string value is tainted
@@ -563,7 +581,7 @@ namespace GitHub.Runner.Worker {
                 Secrets = Root.Secrets // all secrets values
             });
 
-            string moduleName = GetPluginName(executionType);
+            string pluginName = GetPluginName(executionType);
             string workflow = Path.GetFileNameWithoutExtension(WorkflowFilePath);
 
             string inputFileName = TaintFileName.GenerateStepInputFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.ContextName, ExecutionContext.ScopeName);
@@ -582,7 +600,7 @@ namespace GitHub.Runner.Worker {
             _invoker.OutputDataReceived += OnDataReceived;
             _invoker.ErrorDataReceived += OnErrorReceived;
             
-            var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, moduleName), arguments,  environments, ExecutionContext.CancellationToken);
+            var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, pluginName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
                 var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
@@ -740,7 +758,7 @@ namespace GitHub.Runner.Worker {
 
         /***/
         private string GetPluginName(ActionExecutionType executionType) {
-            string moduleName = String.Empty;
+            string pluginName = String.Empty;
             
             if (string.IsNullOrEmpty(RepositoryDirectory)) {
                 RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
@@ -757,9 +775,9 @@ namespace GitHub.Runner.Worker {
                     runDefaults.TryGetValue("shell", out shell);
                 }
 
-                moduleName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_MODULE") ?? "./script.py";
+                pluginName = System.Environment.GetEnvironmentVariable($"TAINT_{shell.ToUpper()}_PLUGIN") ?? "./script.py";
             } else if (executionType == ActionExecutionType.NodeJS) {
-                moduleName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_MODULE") ?? "./nodejs.py";
+                pluginName = System.Environment.GetEnvironmentVariable("TAINT_NODEJS_PLUGIN") ?? "./nodejs.py";
             } else if (executionType == ActionExecutionType.Composite) {
                 // NOTE: not clear what to do with that. 
                 // Probably just ignore because composite actions are consists of different actions and script.
@@ -770,7 +788,7 @@ namespace GitHub.Runner.Worker {
                 // ActionExecutionType.Plugin is not supported at this stage
             }
 
-            return moduleName;
+            return pluginName;
         }
 
     }
