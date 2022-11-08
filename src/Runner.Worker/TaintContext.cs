@@ -19,11 +19,11 @@ namespace GitHub.Runner.Worker {
 
     public class TaintFileName {
         // step__{run_id}__{workflow}__{job}__{context_name}__inputs.json
-        public static readonly string StepInputFileName = "step::{0}::{1}::{2}::{3}::inputs.json";
+        public static readonly string StepInputFileName = "step:{0}:{1}:{2}:{3}:inputs.json";
         // step__{run_id}__{workflow}__{job}__{context_name}__outputs.json
-        public static readonly string StepOutputFileName = "step::{0}::{1}::{2}::{3}::outputs.json";
+        public static readonly string StepOutputFileName = "step:{0}:{1}:{2}:{3}:outputs.json";
         // job__{run_id}__{workflow}__{job}.json
-        public static readonly string JobOutputFileName = "job::{0}::{1}::{2}.json";
+        public static readonly string JobOutputFileName = "job:{0}:{1}:{2}.json";
 
         public static string GenerateStepInputFilename(string runnerId, string workflow, string jobName, string contextName, string scopeName = null) {
             if (String.IsNullOrEmpty(scopeName)) {
