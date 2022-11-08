@@ -353,6 +353,7 @@ namespace GitHub.Runner.Worker {
         // This is where we check for the initial seed of sources.
         public bool IsTaintedGithub(string value)
         {
+            bool tainted = false;
             // get the list of tainted inputs from here: https://securitylab.github.com/research/github-actions-untrusted-input/ 
             string[] regexPatterns = { @"github\.event\.inputs\.[a-z0-9_-]+", // event inputs NOTE: can inputs use CAPITAL letters?
                                         @"github\.event\.issue\.title", @"github\.event\.issue\.body", // issues 
@@ -366,12 +367,29 @@ namespace GitHub.Runner.Worker {
                                         };
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
-                if (matches.Count > 0) {
-                    return true;
+                foreach (var match in matches) {
+                    string reference = match.ToString();
+                    if (reference == "github.head_ref") {
+                        string head_ref = ExecutionContext.GetGitHubContext("head_ref");
+                        if (!String.IsNullOrEmpty(head_ref)) Root.Values.Add(head_ref);
+                    } else if (reference.StartsWith("github.event")){
+                        reference = reference.Substring("github.event.".Length);
+                        string eventJson = ExecutionContext.GetGitHubContext("event");
+                        if (String.IsNullOrEmpty(eventJson) == false) {
+                            var githubEvent = JsonConvert.DeserializeObject<dynamic>(eventJson);
+                            foreach (var part in reference.Split(".")) {
+                                githubEvent = githubEvent[part];
+                            }
+                            if (!String.IsNullOrEmpty(githubEvent.ToString())) {
+                                Root.Values.Add(githubEvent.ToString());
+                            }
+                        }
+                    }
+                    tainted = true;
                 }
             }
             
-            return false;
+            return tainted;
         }
 
         // Detects if the string contains tainted input template string
