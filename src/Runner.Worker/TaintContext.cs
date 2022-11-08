@@ -78,7 +78,7 @@ namespace GitHub.Runner.Worker {
         */
         public static string EventName { get; private set; }
         public static string RootDirectory {get; private set; }
-        public static string ModuleDirectory {get; private set; }
+        public static string PluginDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
         public static string RepositoryDirectory {get; private set; } = string.Empty;
         public static TaintEvent Event {get; private set; } = null;
@@ -113,7 +113,7 @@ namespace GitHub.Runner.Worker {
             if (!Directory.Exists(RootDirectory)) {
                 Directory.CreateDirectory(RootDirectory);        
             }
-            ModuleDirectory = Path.Combine(RootDirectory, "plugins");
+            PluginDirectory = Path.Combine(RootDirectory, "_plugins");
             RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
             // EventName = ExecutionContext.GetGitHubContext("event_name");
 
@@ -600,7 +600,7 @@ namespace GitHub.Runner.Worker {
             _invoker.OutputDataReceived += OnDataReceived;
             _invoker.ErrorDataReceived += OnErrorReceived;
             
-            var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.ModuleDirectory, pluginName), arguments,  environments, ExecutionContext.CancellationToken);
+            var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.PluginDirectory, pluginName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
                 var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
