@@ -327,8 +327,18 @@ namespace GitHub.Runner.Worker.Handlers
                 StepHost.OutputDataReceived += stdoutManager.OnDataReceived;
                 StepHost.ErrorDataReceived += stderrManager.OnDataReceived;
 
+                // TODO: generate the script for the bash taint tracker
+                if (ExecutionContext.TaintContext.Inputs.TryGetValue("script", out TaintVariable _var)) {
+                    string content = _var.EvaluatedValue;
+                    foreach (var val in ExecutionContext.TaintContext.Root.Values) {
+                        content = content.Replace(val, "$TAINTED_VALUE");
+                    }
+                    string pluginScriptPath = Path.Combine(TaintContext.RepositoryDirectory, "tainted_" + Path.GetFileName(scriptFilePath));
+                    File.WriteAllText(pluginScriptPath, content);
+                    int moduleExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory ?? pluginScriptPath);
+                }
 
-                int moduleExitCode = await ExecutionContext.TaintContext.ExecutePlugin(Data.ExecutionType, ActionDirectory ?? scriptFilePath);
+                
                 
 
                 // Execute
