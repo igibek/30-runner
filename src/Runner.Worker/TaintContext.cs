@@ -115,6 +115,9 @@ namespace GitHub.Runner.Worker {
             }
             PluginDirectory = Path.Combine(RootDirectory, "_plugins");
             RepositoryDirectory = Path.Combine(RootDirectory, ExecutionContext.GetGitHubContext("repository"));
+            if (!Directory.Exists(RepositoryDirectory)) {
+                Directory.CreateDirectory(RepositoryDirectory);
+            }
             // EventName = ExecutionContext.GetGitHubContext("event_name");
 
             // Only job context should have Outputs, Files, Secrets
