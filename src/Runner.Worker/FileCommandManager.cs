@@ -143,9 +143,13 @@ namespace GitHub.Runner.Worker
             {
                 // set_env command sets/override global environment variable
                 // therefore, it should be taint tracked also
+
+                // HACK: adding environment variables
                 if (context.TaintContext.Root.Values.Contains(pair.Value)) {
-                    
+                    context.TaintContext.EnvironmentVariables.Add(pair.Key, new TaintVariable(pair.Value, true, false));
+                    context.TaintContext.Root.EnvironmentVariables.Add(pair.Key, new TaintVariable(pair.Value, true, false));
                 }
+                
                 SetEnvironmentVariable(context, pair.Key, pair.Value);
             }
         }
