@@ -146,8 +146,13 @@ namespace GitHub.Runner.Worker
 
                 // HACK: adding environment variables
                 if (context.TaintContext.Root.Values.Contains(pair.Value)) {
-                    context.TaintContext.EnvironmentVariables.Add(pair.Key, new TaintVariable(pair.Value, true, false));
-                    context.TaintContext.Root.EnvironmentVariables.Add(pair.Key, new TaintVariable(pair.Value, true, false));
+                    TaintVariable _taintVar = new TaintVariable();
+                    _taintVar.Name = pair.Key;
+                    _taintVar.Template = pair.Value;
+                    _taintVar.EvaluatedValue = pair.Value;
+                    _taintVar.Tainted = true;
+                    context.TaintContext.EnvironmentVariables.Add(pair.Key, _taintVar);
+                    context.TaintContext.Root.EnvironmentVariables.Add(pair.Key, _taintVar);
                 }
                 
                 SetEnvironmentVariable(context, pair.Key, pair.Value);
@@ -278,7 +283,12 @@ namespace GitHub.Runner.Worker
                 // TODO: refactor for secret detection
                 if (context.TaintContext.Root.Values.Contains(pair.Value)) {
                     string key = $"{context.GetFullyQualifiedContextName()}.{pair.Key}";
-                    context.TaintContext.Root.StepOutputs.Add(key, new TaintVariable(pair.Value, true, false));
+                    TaintVariable _taintVar = new TaintVariable();
+                    _taintVar.Name = pair.Key;
+                    _taintVar.Template = pair.Value;
+                    _taintVar.EvaluatedValue = pair.Value;
+                    _taintVar.Tainted = true;
+                    context.TaintContext.Root.StepOutputs.Add(key, _taintVar);
                 }
 
                 context.SetOutput(pair.Key, pair.Value, out var reference);

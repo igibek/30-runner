@@ -145,13 +145,15 @@ namespace GitHub.Runner.Worker {
             }
         }
 
-        private bool AddEnvironmentVariable(string key, string value)
+        private bool AddEnvironmentVariable(string key, string template)
         {
-            Trace.Info($"Adding env key-value. Key: {key}, Value: {value}");
-            bool tainted = IsTainted(value);
-            bool issecret = IsSecret(value);
-            var taintVariable = new TaintVariable(value, tainted, issecret);
-            return EnvironmentVariables.TryAdd(key, taintVariable);
+            Trace.Info($"Adding env key-value. Key: {key}, Value: {template}");
+            TaintVariable _taintVar = new TaintVariable();
+            _taintVar.Name = key;
+            _taintVar.Tainted = IsTainted(template, ref _taintVar);
+            _taintVar.Secret = IsSecret(template);
+            
+            return EnvironmentVariables.TryAdd(key, _taintVar);
         }
 
         public void AddInputs(TemplateToken token)
@@ -173,27 +175,29 @@ namespace GitHub.Runner.Worker {
         {
             
             Trace.Info($"Adding input key-value. Key: {key}, Value: {value}");
-            bool tainted = IsTainted(value);
-            bool secret = IsSecret(value);
-            if (secret) {
+            TaintVariable _taintVar = new TaintVariable();
+            _taintVar.Name = key;
+            _taintVar.Template = value;
+            _taintVar.Tainted = IsTainted(value, ref _taintVar);
+            _taintVar.Secret = IsSecret(value);
+
+            if (_taintVar.Secret) {
                 DependOnSecret = true;
                 // TODO: get the secret name
                 // TBH I do NOT know why I added it here.
                 // Currently we can get the all the secrets from inputs.
                 Root.Secrets.Add(value);
             }
-   
-            var taintVariable = new TaintVariable(value, tainted, secret);
             
             // adding input environment variable 
             // for every input runner will create env variable with "$INPUT_FOO" format
             // look AddInputsToEnvironment() function in Handler.cs
             string envKey = "INPUT_" + key.Replace(' ', '_').ToUpperInvariant();
-            EnvironmentVariables.TryAdd(envKey, taintVariable);
+            EnvironmentVariables.TryAdd(envKey, _taintVar);
             
             // We are using TryAdd instead of indexing because we avoid overwriting existing values.
             // For example in the case when we are evaluating the Actions default value
-            return Inputs.TryAdd(key, taintVariable);
+            return Inputs.TryAdd(key, _taintVar);
         }
 
         public void AddEvaluatedInputs(Dictionary<string, string> inputs) {
@@ -263,8 +267,12 @@ namespace GitHub.Runner.Worker {
             foreach (var pair in mapping) {
                 string key = pair.Key.ToString();
                 string value = pair.Value.ToString();
-                var taintVariable = new TaintVariable(value, IsTainted(value), IsSecret(value));
-                Root.JobOutputs.TryAdd(key, taintVariable);
+                TaintVariable _taintVar = new TaintVariable();
+                _taintVar.Name = key;
+                _taintVar.Template = value;
+                _taintVar.Tainted = IsTainted(value, ref _taintVar);
+                _taintVar.Secret = IsSecret(value);
+                Root.JobOutputs.TryAdd(key, _taintVar);
             }
         }
 
@@ -286,12 +294,14 @@ namespace GitHub.Runner.Worker {
                         }
                     }
                 }
-                bool tainted = IsTainted(value);
-                bool secret = IsSecret(value);
-
-                var taintVariable = new TaintVariable(outputName, tainted, secret);
+                TaintVariable _taintVar = new TaintVariable();
+                _taintVar.Tainted = IsTainted(value, ref _taintVar);
+                _taintVar.Secret = IsSecret(value);
+                _taintVar.Name = outputName;
+                _taintVar.Template = value;
+                
                 string reference = $"{ExecutionContext.GetFullyQualifiedContextName()}.{outputName}";
-                Root.StepOutputs.TryAdd(reference, taintVariable);
+                Root.StepOutputs.TryAdd(reference, _taintVar);
             }
         }
         
@@ -327,17 +337,17 @@ namespace GitHub.Runner.Worker {
 
         // Detects if the string value is tainted
         // Calls multiple tainted checks
-        public bool IsTainted(string value)
+        public bool IsTainted(string value, ref TaintVariable _taintVar)
         {
             
-            return IsTaintedGithub(value) || // checks if the tainted source is used
-                    IsTaintedEnvironment(value) || // checks if the environment variable is tainted
-                    IsTaintedStepOutput(value) || // checks if the step output is tainted
-                    IsTaintedJobOutput(value) || // checks if the job output is tainted
-                    IsTaintedInput(value); // check if the composite action input is tainted
+            return IsTaintedGithub(value, ref _taintVar) || // checks if the tainted source is used
+                    IsTaintedEnvironment(value, ref _taintVar) || // checks if the environment variable is tainted
+                    IsTaintedStepOutput(value, ref _taintVar) || // checks if the step output is tainted
+                    IsTaintedJobOutput(value, ref _taintVar) || // checks if the job output is tainted
+                    IsTaintedInput(value, ref _taintVar); // check if the composite action input is tainted
         }
 
-        public bool IsTaintedEnvironment(string value)
+        public bool IsTaintedEnvironment(string value, ref TaintVariable _taintVar)
         {
             // Used the regex from this thread: https://stackoverflow.com/questions/2821043/allowed-characters-in-linux-environment-variable-names
             // TODO: implement checks for Windows
@@ -371,7 +381,7 @@ namespace GitHub.Runner.Worker {
 
         // Detects if the string depends on user controlled inputs.
         // This is where we check for the initial seed of sources.
-        public bool IsTaintedGithub(string value)
+        public bool IsTaintedGithub(string value, ref TaintVariable _taintVar)
         {
             bool tainted = false;
             // get the list of tainted inputs from here: https://securitylab.github.com/research/github-actions-untrusted-input/ 
@@ -389,6 +399,9 @@ namespace GitHub.Runner.Worker {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
                 foreach (var match in matches) {
                     string reference = match.ToString();
+                    // TODO: there is a possibility that TaintedVariable have multiple sources
+                    // currently we are marking as a source the last found match
+                    _taintVar.Source = reference;
                     if (reference == "github.head_ref") {
                         string head_ref = ExecutionContext.GetGitHubContext("head_ref");
                         if (!String.IsNullOrEmpty(head_ref)) Root.Values.Add(head_ref);
@@ -415,14 +428,16 @@ namespace GitHub.Runner.Worker {
         // Detects if the string contains tainted input template string
         // Composite actions uses the template github.inputs.<input-name> to access inputs
         // Since the composite action can be called using tainted input, we need to check that the
-        public bool IsTaintedInput(string value)
+        public bool IsTaintedInput(string value, ref TaintVariable _taintVar)
         {
             string [] regexPatterns = { @"github\.inputs\.[a-zA-Z0-9_-]+", @"inputs\.[a-zA-Z0-9_-]+" };
 
             foreach (string pattern in regexPatterns) {
                 MatchCollection matches = Regex.Matches(value, pattern, RegexOptions.IgnoreCase);
                 foreach (var match in matches) {
-                    string input = match.ToString().Replace("github.inputs.", "");
+                    string reference = match.ToString();
+                    _taintVar.Source = reference;
+                    string input = reference.Replace("github.inputs.", "");
                     // for composite actions we will need to look also parents inputs
                     if (Inputs.TryGetValue(input, out TaintVariable taintVariable)) {
                         if (taintVariable.Tainted) {
@@ -438,7 +453,7 @@ namespace GitHub.Runner.Worker {
         // Job outputs can be access in two different ways 
         // 1. needs.<job-name>.outputs.<output-name> (inside regular workflows, when one job depends on another job)
         // 2. jobs.<job-name>.outputs.<output-name> (inside reusable workflows)
-        public bool IsTaintedJobOutput(string value)
+        public bool IsTaintedJobOutput(string value, ref TaintVariable _taintVar)
         {
             string [] patterns = { @"needs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*", @"jobs\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*" };
 
@@ -447,6 +462,7 @@ namespace GitHub.Runner.Worker {
                 MatchCollection matches = regex.Matches(value);
                 foreach(var match in matches) {
                     string matchStr = match.ToString();
+                    _taintVar.Source = matchStr;
                     var parts = matchStr.Split(".");
                     if (parts.Length != 4) {
                         continue;
@@ -473,7 +489,7 @@ namespace GitHub.Runner.Worker {
         // Step output can be referenced in two ways
         // 1. steps.<step-id>.outputs.<output-name>
         // 2. steps[<step-id>]['outputs'][<output-name>]
-        public bool IsTaintedStepOutput(string value) {
+        public bool IsTaintedStepOutput(string value, ref TaintVariable _taintVar) {
             // TODO: implement step output for non conventional step output form
             // "steps['{stepName}']['outputs']['{outputName}']"
             string regexPattern = @"steps\.[a-zA-Z_][a-zA-Z0-9_]*\.outputs\.[a-zA-Z_][a-zA-Z0-9_]*";
@@ -481,6 +497,7 @@ namespace GitHub.Runner.Worker {
             MatchCollection matchCollection = regex.Matches(value);
             foreach (var match in matchCollection) {
                 string matchStr = match.ToString();
+                _taintVar.Source = matchStr;
                 var parts = matchStr.Split(".");
                 
                 if (parts.Length != 4) {
@@ -538,11 +555,17 @@ namespace GitHub.Runner.Worker {
                 string[] artifacts = artifactPath.Split('\n', StringSplitOptions.RemoveEmptyEntries);
                 foreach (var artifact in artifacts) {
                     if (Files.ContainsKey(artifact)) {
-                        Root.Artifacts.TryAdd(artifactName, new TaintVariable(artifactName, true));
+                        TaintVariable _taintVar = new TaintVariable();
+                        _taintVar.Name = artifactName;
+                        _taintVar.Tainted = true;
+                        Root.Artifacts.TryAdd(artifactName, _taintVar);
                     } else {
                         foreach (var file in Files) {
                             if (file.Value.Path.StartsWith(artifact)) {
-                                Root.Artifacts.TryAdd(artifactName, new TaintVariable(artifactName, true));
+                                TaintVariable _taintVar = new TaintVariable();
+                                _taintVar.Name = artifactName;
+                                _taintVar.Tainted = true;
+                                Root.Artifacts.TryAdd(artifactName, _taintVar);
                             }
                         }
                     }
@@ -807,23 +830,15 @@ namespace GitHub.Runner.Worker {
 
     public class TaintVariable {
         // TODO: assign name
-        public string Name { get; set; }
-        // TODO: assign source
-        public string Source { get; set; }
-        public string Template { get; set; }
-        public string EvaluatedValue { get; set; }
-        public bool Tainted { get; set; }
-        public bool Secret { get; set; }
-        public TaintVariable(string template, bool tainted = false, bool secret = false)
-        {
-            Template = template;
-            Tainted = tainted;
-            Secret = secret;
-            EvaluatedValue = "";
-        }
+        public string Name { get; set; } = String.Empty;
+        // TODO: change the source into List, since it is possible to have multiple sources
+        public string Source { get; set; } = String.Empty;
+        public string Template { get; set; } = String.Empty;
+        public string EvaluatedValue { get; set; } = String.Empty;
+        public bool Tainted { get; set; } = false;
+        public bool Secret { get; set; } = false;
 
         public TaintVariable() {
-
         }
     }
 
@@ -838,6 +853,7 @@ namespace GitHub.Runner.Worker {
 
     public class TaintSink {
         public string Source { get; set; }
+        public string SourceType { get; set; }
         public string Sink { get; set; }
         public string File { get; set; } = null;
         public string FilePath { get; set; } = null;
