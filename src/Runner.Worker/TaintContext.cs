@@ -81,7 +81,6 @@ namespace GitHub.Runner.Worker {
         public static string PluginDirectory {get; private set; }
         public static string TaintDirectory {get; private set; } = "_taint";
         public static string RepositoryDirectory {get; private set; } = string.Empty;
-        public static TaintEvent Event {get; private set; } = null;
         public static string WorkflowFilePath { get; private set; }
         public static string JobName { get; private set; }
 
@@ -96,7 +95,7 @@ namespace GitHub.Runner.Worker {
         GLOBAL SHARED VALUES
         */
         public HashSet<string> Values {get; private set; }
-        public HashSet<string> Files {get; private set; }
+        public Dictionary<string, TaintFile> Files {get; private set; }
         public HashSet<string> Secrets {get; private set; }
         public Dictionary<string, TaintVariable> StepOutputs { get; private set; }
         public Dictionary<string, TaintVariable> JobOutputs {get; private set; }
@@ -124,7 +123,7 @@ namespace GitHub.Runner.Worker {
             StepOutputs = new Dictionary<string, TaintVariable>();
             JobOutputs = new Dictionary<string, TaintVariable>();
             Artifacts = new Dictionary<string, TaintVariable>();
-            Files = new HashSet<string>();
+            Files = new Dictionary<string, TaintFile>();
             Secrets = new HashSet<string>();
             Values = new HashSet<string>();
             PreviousJobs = new Dictionary<string, TaintVariable>();
@@ -538,12 +537,12 @@ namespace GitHub.Runner.Worker {
                 // aritfactPath input can include array of different locations
                 string[] artifacts = artifactPath.Split('\n', StringSplitOptions.RemoveEmptyEntries);
                 foreach (var artifact in artifacts) {
-                    if (Files.Contains(artifact)) {
-                        Root.Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                    if (Files.ContainsKey(artifact)) {
+                        Root.Artifacts.TryAdd(artifactName, new TaintVariable(artifactName, true));
                     } else {
                         foreach (var file in Files) {
-                            if (file.StartsWith(artifact)) {
-                                Root.Artifacts.TryAdd(artifactPath, new TaintVariable(artifactPath, true));
+                            if (file.Value.Path.StartsWith(artifact)) {
+                                Root.Artifacts.TryAdd(artifactName, new TaintVariable(artifactName, true));
                             }
                         }
                     }
@@ -555,7 +554,8 @@ namespace GitHub.Runner.Worker {
         public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
             
             if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
-                Root.Files.Add(path);
+                // BUG: add tainted file into dictionary
+                // Root.Files.Add(path);
             }
             
             var inputs = new Dictionary<string, TaintVariable>();
@@ -622,6 +622,8 @@ namespace GitHub.Runner.Worker {
                     string key = $"{ExecutionContext.GetFullyQualifiedContextName()}.${output.Key}";
                     Root.StepOutputs.Add(key, output.Value);
                 }
+
+                // TODO: add environment variable into Global environment
             }
             
 
@@ -804,18 +806,24 @@ namespace GitHub.Runner.Worker {
     }
 
     public class TaintVariable {
-        // NOTE: should distinguish between expression and value
+        // TODO: assign name
         public string Name { get; set; }
-        public string Value { get; set; }
+        // TODO: assign source
+        public string Source { get; set; }
+        public string Template { get; set; }
         public string EvaluatedValue { get; set; }
         public bool Tainted { get; set; }
         public bool Secret { get; set; }
-        public TaintVariable(string value, bool tainted = false, bool secret = false)
+        public TaintVariable(string template, bool tainted = false, bool secret = false)
         {
-            Value = value;
+            Template = template;
             Tainted = tainted;
             Secret = secret;
             EvaluatedValue = "";
+        }
+
+        public TaintVariable() {
+
         }
     }
 
@@ -824,10 +832,16 @@ namespace GitHub.Runner.Worker {
         public bool Tainted { get; set; }
         public bool Secret { get; set; }
         public bool Directory { get; set; }
+        // TODO: assign source
+        public string Source { get; set; }
     }
 
-    public class TaintEvent {
-        public string Workflow { get; set; }
+    public class TaintSink {
+        public string Source { get; set; }
+        public string Sink { get; set; }
+        public string File { get; set; } = null;
+        public string FilePath { get; set; } = null;
+        public int Line { get; set; } = -1;
     }
 
     public class JobTaintContext {
@@ -837,22 +851,33 @@ namespace GitHub.Runner.Worker {
     }
 
     public class TaintPluginInputFile {
+        // Script | NodeJS | Docker
         public string Type { get; set; }
-        public string Action { get; set; }
-        public string Reference { get; set; }
+        // If the type is NodeJS, this will be name of the action, i.e. actions/checkout
+        public string Action { get; set; } = null;
+        // If the type is NodeJS, this will be name of the action, i.e. v3
+        public string Reference { get; set; } = null;
+        // Path to the actions or script file
         public string Path { get; set; }
+        
+        public string Workflow { get; set; }
+        // Path to the folder, where workflow is located
+        public string WorkflowPath { get; set; }
+        
         public Dictionary<string, TaintVariable> Inputs { get; set; }
         public Dictionary<string, TaintVariable> Environments { get; set; }
+        public Dictionary<string, TaintFile> Files { get; set; }
         public HashSet<string> Values { get; set; }
-        public HashSet<string> Files { get; set; }
         public HashSet<string> Secrets { get; set; }
     }
+
     public class TaintPluginOutputFile {
         public Dictionary<string, TaintVariable> Outputs { get; set; }
         public Dictionary<string, TaintVariable> Environmnets { get; set; }
         public HashSet<string> Values { get; set; }
-        public HashSet<string> Files { get; set; }
+        public Dictionary<string, TaintFile> Files { get; set; }
         public HashSet<string> Secrets { get; set; }
-        public HashSet<string> Sinks { get; set; }       
+        public List<TaintSink> Sinks { get; set; }   
+        public dynamic Extra { get; set; } // dynamically parsing all additional information
     }
 }
