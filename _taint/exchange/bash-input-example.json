@@ -1,0 +1,52 @@
+{
+    "type": "Script",
+    "action": null,
+    "reference": null,
+    "path": "/absolute/path/to/the/runner/working/directory/_work/_temp/8c342eb8-30ce-4632-9402-a398b71ef813.sh",
+    "workflowPath": "/absolute/path/to/the/repository/.github/workflows/test.yml",
+    "workflowDirectory": "/absolute/path/to/the/repository/.github/workflows",
+    "inputs": {
+        "name1": {
+            "tainted": true,
+            "secret": true,
+            "template": "Hello, ${{ github.inputs.name }}",
+            "evaluatedValue": "Hello, World",
+            "source": "github.inputs.name"
+        }
+    },
+    "environments": {
+        "ENV1": {
+            "tainted": true,
+            "secret": true,
+            "template": "Hello, ${{ github.inputs.name }}",
+            "evaluatedValue": "Hello, World",
+            "source": "github.inputs.name"
+        }
+    },
+    "files": {
+        "/absolute/path/to/the/tainted/file": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": true,
+            "directory": false,
+            "source": "secrets.name"
+        },
+        "/absolute/path/to/the/tainted/folder": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": false,
+            "directory": true,
+            "source": "github.inputs.name"
+        }
+    },
+    "values": [
+        "xyz",
+        "abc",
+        "etc"
+    ],
+    "secrets": [
+        "xyz",
+        "abc",
+        "etc"
+    ]
+}

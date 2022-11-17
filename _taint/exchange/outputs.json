@@ -3,22 +3,76 @@
         "OUTPUT-NAME1": {
             "tainted": true,
             "secret": true,
-            "value": "expression/tempplate string", // you can ignore this if you want, but you do this it will be cool
-            "evaluatedValue": "real evaluated value" // you can ignore this if you want, but you do this it will be cool
+            "template": "expression/tempplate string IF possible ELSE null",
+            "evaluatedValue": "real evaluated value IF possible ELSE null", 
+            "source": "input-name"
         }
     },
     "environments": {
-        "ENV1": {
+        "ENV2": {
             "tainted": true,
             "secret": true,
-            "value": "expression/tempplate string", // you can ignore this if you want, but you do this it will be cool
-            "evaluatedValue": "real evaluated value" // you can ignore this if you want, but you do this it will be cool
+            "template": "expression/tempplate string IF possible ELSE null",
+            "evaluatedValue": "real evaluated value IF possible ELSE null", 
+            "source": "ENV1"
         }
     },
-    "files": [
-        "list of all tainted files created inside the plugin"
-    ],
+    "files": {
+        "/absolute/path/to/the/tainted/file": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": true,
+            "directory": false,
+            "source": "secrets.name"
+        },
+        "/absolute/path/to/the/tainted/folder": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": false,
+            "directory": true,
+            "source": "github.inputs.name"
+        }
+    },
     "sinks": [
-        "list of all the sinks reached inside the plugin"
+        {
+            "source": "indicate the source IF possible ELSE null. But it is better/recommended to indicate the source!",
+            "type": "input|env|value|file",
+            "sink": "function-name|script-line",
+            "file": "file-name",
+            "filePath": "path/to/the/file",
+            "line": 123
+        },
+        {
+            "source": "input-name",
+            "type": "input",
+            "sink": "execSync",
+            "file": "index.js",
+            "filePath": "path/to/the/file",
+            "line": 123
+        },
+        {
+            "source": "ENV1",
+            "type": "env",
+            "sink": "node $ENV1",
+            "file": "./script.sh",
+            "filePath": "path/to/the/file",
+            "line": 123
+        },
+        {
+            "source": "VALUE",
+            "type": "value",
+            "sink": "python main.py VALUE",
+            "file": "./script2.sh",
+            "filePath": "path/to/the/file",
+            "line": 123
+        },
+        {
+            "source": "/absolute/path/to/the/file",
+            "type": "file",
+            "sink": "python main.py VALUE",
+            "file": "./script2.sh",
+            "filePath": "path/to/the/file",
+            "line": 123
+        }
     ]
 }

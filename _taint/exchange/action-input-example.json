@@ -1,0 +1,52 @@
+{
+    "type": "NodeJS",
+    "action": "actions/checkout",
+    "reference": "v3",
+    "path": "/absolute/path/to/the/runner/working/directory/_actions/actions/checkout",
+    "workflow": "test.yml",
+    "workflowPath": "/absolute/path/to/the/repository/.github/workflows",
+    "inputs": {
+        "repository": {
+            "tainted": true,
+            "secret": true,
+            "template": "Hello, ${{ github.inputs.repository }}",
+            "evaluatedValue": "Hello, World",
+            "source": "github.inputs.repository"
+        }
+    },
+    "environments": {
+        "ENV1": {
+            "tainted": true,
+            "secret": true,
+            "template": "Hello, ${{ github.inputs.name }}",
+            "evaluatedValue": "Hello, World",
+            "source": "github.inputs.name"
+        }
+    },
+    "files": {
+        "/absolute/path/to/the/tainted/file": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": true,
+            "directory": false,
+            "source": "secrets.name"
+        },
+        "/absolute/path/to/the/tainted/folder": {
+            "path": "/absolute/path/to/the/tainted/file",
+            "tainted": true,
+            "secret": false,
+            "directory": true,
+            "source": "github.inputs.name"
+        }
+    },
+    "values": [
+        "xyz",
+        "abc",
+        "etc"
+    ],
+    "secrets": [
+        "xyz",
+        "abc",
+        "etc"
+    ]
+}
