@@ -56,7 +56,7 @@
             "sink": "node $ENV1",
             "file": "./script.sh",
             "filePath": "path/to/the/file",
-            "line": 123
+            "line": -1
         },
         {
             "source": "VALUE",
