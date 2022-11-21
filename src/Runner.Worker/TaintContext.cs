@@ -631,13 +631,13 @@ namespace GitHub.Runner.Worker {
             if (File.Exists(outputFilePath)) {
                 var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
 
-                foreach (var value in pluginOutput.Values) {
-                    Root.Values.Add(value);
-                }
+                // foreach (var value in pluginOutput.Values) {
+                //     Root.Values.Add(value);
+                // }
 
-                foreach(var secret in pluginOutput.Secrets) {
-                    Root.Values.Add(secret);
-                }
+                // foreach(var secret in pluginOutput.Secrets) {
+                //     Root.Values.Add(secret);
+                // }
 
                 foreach (var output in pluginOutput.Outputs) {
                     // will store the step output with the key in <scope-name>.<step-id>.<output-name> format if the scope name is available, 
@@ -645,8 +645,17 @@ namespace GitHub.Runner.Worker {
                     string key = $"{ExecutionContext.GetFullyQualifiedContextName()}.${output.Key}";
                     Root.StepOutputs.Add(key, output.Value);
                 }
+                
+                foreach (var environment in pluginOutput.Environmnets) {
+                    string key = environment.Key;
+                    if (Root.EnvironmentVariables.ContainsKey(key)) {
+                        Root.EnvironmentVariables[key] = environment.Value;
+                    } else {
+                        Root.EnvironmentVariables.Add(key, environment.Value);
+                    }
+                    
 
-                // TODO: add environment variable into Global environment
+                }
             }
             
 
