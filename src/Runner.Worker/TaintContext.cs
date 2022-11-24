@@ -576,10 +576,7 @@ namespace GitHub.Runner.Worker {
 
         public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
             
-            if (executionType == ActionExecutionType.Script && DependOnSecret && !string.IsNullOrEmpty(path)) {
-                // BUG: add tainted file into dictionary
-                // Root.Files.Add(path);
-            }
+            
             
             var inputs = new Dictionary<string, TaintVariable>();
             foreach(var item in Inputs) {
@@ -594,6 +591,20 @@ namespace GitHub.Runner.Worker {
                     env.Add(item.Key, item.Value);
                 }
             }
+
+            if (executionType == ActionExecutionType.Script) {
+                if (DependOnSecret && !string.IsNullOrEmpty(path)) {
+                    // TODO: assign the source of the file
+                    Root.Files.TryAdd(path, new TaintFile { Directory = false, Path = path, Secret = true, Tainted = true});
+                }
+                if (inputs.ContainsKey("script")) {
+                    inputs.Remove("script");
+                }
+                if (env.ContainsKey("INPUT_SCRIPT")) {
+                    env.Remove("INPUT_SCRIPT");
+                }
+            }
+
             this.CheckArtifact();
             string contents = StringUtil.ConvertToJson(new TaintPluginInputFile{
                 Type = executionType.ToString(),
