@@ -1,13 +1,17 @@
 ## Features
-- [REVERTED] Service containers startup error logs are now included in workflow's logs (#2110)
-  - Reverted due to https://github.com/actions/runner/issues/2173
+- Expose github.actor_id, github.workflow_ref & github.workflow_sha as environment variable (#2249)
+- Added worker and listener logs to stdout (#2291, #2307)
 
 ## Bugs
-- Fixed missing SHA for Windows arm64 release archive (#2171)
+- Made github.action_status output lowercase to be consistent with job.status' output (#1944)
 
 ## Misc
-- Added a feature flag to start warning on `save-state` and `set-output` deprecation (#2164)
-- Prepare supporting `vars` in workflow templates (#2096)
+- Added small size runner image for ARC (#2250)
+- Small change to Node.js 12 deprecation message (#2262)
+- Added the option to use the --replace argument to the create-latest-svc.sh (#2273)
+- Made runner_name optional defaulting to hostname in delete.sh script (#1871)
+- Return exit code when MANUALLY_TRAP_SIG is exported (#2285)
+- Use results for uploading step summaries (#2301) with limited size (#2321)
 
 ## Windows x64
 We recommend configuring the runner in a root folder of the Windows drive (e.g. "C:\actions-runner"). This will help avoid issues related to service identity folder permissions and long file path restrictions on Windows.

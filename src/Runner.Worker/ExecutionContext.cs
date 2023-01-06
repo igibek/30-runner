@@ -80,6 +80,7 @@ namespace GitHub.Runner.Worker
         // logging
         long Write(string tag, string message);
         void QueueAttachFile(string type, string name, string filePath);
+        void QueueSummaryFile(string name, string filePath,  Guid stepRecordId);
 
         // timeline record update methods
         void Start(string currentOperation = null);
@@ -694,8 +695,11 @@ namespace GitHub.Runner.Worker
             // Endpoints
             Global.Endpoints = message.Resources.Endpoints;
 
-            // Variables
-            Global.Variables = new Variables(HostContext, message.Variables);
+            // Ser debug using vars context if debug variables are not already present.
+            var variables = message.Variables;
+            SetDebugUsingVars(variables, message.ContextData);
+
+            Global.Variables = new Variables(HostContext, variables);
 
             if (Global.Variables.GetBoolean("DistributedTask.ForceInternalNodeVersionOnRunnerTo12") ?? false)
             {
@@ -854,6 +858,19 @@ namespace GitHub.Runner.Worker
             }
 
             _jobServerQueue.QueueFileUpload(_mainTimelineId, _record.Id, type, name, filePath, deleteSource: false);
+        }
+
+        public void QueueSummaryFile(string name, string filePath, Guid stepRecordId)
+        {
+            ArgUtil.NotNullOrEmpty(name, nameof(name));
+            ArgUtil.NotNullOrEmpty(filePath, nameof(filePath));
+
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException($"Can't upload (name:{name}) file: {filePath}. File does not exist.");
+            }
+
+            _jobServerQueue.QueueSummaryUpload(stepRecordId, name, filePath, deleteSource: false);
         }
 
         // Add OnMatcherChanged
@@ -1088,6 +1105,31 @@ namespace GitHub.Runner.Worker
 
             var newGuid = Guid.NewGuid();
             return CreateChild(newGuid, displayName, newGuid.ToString("N"), null, null, ActionRunStage.Post, intraActionState, _childTimelineRecordOrder - Root.PostJobSteps.Count, siblingScopeName: siblingScopeName);
+        }
+
+        // Sets debug using vars context in case debug variables are not present.
+        private static void SetDebugUsingVars(IDictionary<string, VariableValue> variables, IDictionary<string, PipelineContextData> contextData)
+        {
+            if (contextData != null &&
+                contextData.TryGetValue(PipelineTemplateConstants.Vars, out var varsPipelineContextData) &&
+                varsPipelineContextData != null &&
+                varsPipelineContextData is DictionaryContextData varsContextData)
+            {
+                // Set debug variables only when StepDebug/RunnerDebug variables are not present.
+                if (!variables.ContainsKey(Constants.Variables.Actions.StepDebug) &&
+                    varsContextData.TryGetValue(Constants.Variables.Actions.StepDebug, out var stepDebugValue) &&
+                    stepDebugValue is StringContextData)
+                {
+                    variables[Constants.Variables.Actions.StepDebug] = stepDebugValue.ToString();
+                }
+
+                if (!variables.ContainsKey(Constants.Variables.Actions.RunnerDebug) &&
+                    varsContextData.TryGetValue(Constants.Variables.Actions.RunnerDebug, out var runDebugValue) &&
+                    runDebugValue is StringContextData)
+                {
+                    variables[Constants.Variables.Actions.RunnerDebug] = runDebugValue.ToString();
+                }
+            }
         }
 
         public void ApplyContinueOnError(TemplateToken continueOnErrorToken)
