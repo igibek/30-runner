@@ -576,8 +576,6 @@ namespace GitHub.Runner.Worker {
 
         public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
             
-            
-            
             var inputs = new Dictionary<string, TaintVariable>();
             foreach(var item in Inputs) {
                 if (item.Value.Tainted || item.Value.Secret) {
@@ -640,7 +638,7 @@ namespace GitHub.Runner.Worker {
             var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.PluginDirectory, pluginName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
-                var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath));
+                var pluginOutput = JsonConvert.DeserializeObject<TaintPluginOutputFile>(File.ReadAllText(outputFilePath)) as TaintPluginOutputFile;
 
                 // foreach (var value in pluginOutput.Values) {
                 //     Root.Values.Add(value);
@@ -657,7 +655,7 @@ namespace GitHub.Runner.Worker {
                     Root.StepOutputs.Add(key, output.Value);
                 }
                 
-                foreach (var environment in pluginOutput.Environmnets) {
+                foreach (var environment in pluginOutput.Environments) {
                     string key = environment.Key;
                     if (Root.EnvironmentVariables.ContainsKey(key)) {
                         Root.EnvironmentVariables[key] = environment.Value;
@@ -909,7 +907,7 @@ namespace GitHub.Runner.Worker {
 
     public class TaintPluginOutputFile {
         public Dictionary<string, TaintVariable> Outputs { get; set; }
-        public Dictionary<string, TaintVariable> Environmnets { get; set; }
+        public Dictionary<string, TaintVariable> Environments { get; set; }
         public HashSet<string> Values { get; set; }
         public Dictionary<string, TaintFile> Files { get; set; }
         public HashSet<string> Secrets { get; set; }
