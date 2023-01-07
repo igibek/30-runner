@@ -575,7 +575,7 @@ namespace GitHub.Runner.Worker {
         }
 
         public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
-            
+            ExecutionContext.Output($"##[group]Execute Taint Plugin");
             var inputs = new Dictionary<string, TaintVariable>();
             foreach(var item in Inputs) {
                 if (item.Value.Tainted || item.Value.Secret) {
@@ -667,7 +667,7 @@ namespace GitHub.Runner.Worker {
                 }
             }
             
-
+            ExecutionContext.Output($"##[endgroup]");
             return result;
         }
 
