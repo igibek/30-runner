@@ -590,13 +590,22 @@ namespace GitHub.Runner.Worker {
                 }
             }
 
+            var values = new HashSet<string>();
+            foreach (var val in Root.Values) {
+                values.Add(val);
+            }
+
             if (executionType == ActionExecutionType.Script) {
                 if (DependOnSecret && !string.IsNullOrEmpty(path)) {
                     // TODO: assign the source of the file
                     Root.Files.TryAdd(path, new TaintFile { Directory = false, Path = path, Secret = true, Tainted = true});
                 }
                 if (inputs.ContainsKey("script")) {
+                    if (values.Contains(inputs["script"].EvaluatedValue)) {
+                        values.Remove(inputs["script"].EvaluatedValue);
+                    }
                     inputs.Remove("script");
+
                 }
                 if (env.ContainsKey("INPUT_SCRIPT")) {
                     env.Remove("INPUT_SCRIPT");
@@ -612,7 +621,7 @@ namespace GitHub.Runner.Worker {
                 Inputs = inputs,
                 Environments = env,
                 Files = Root.Files,
-                Values = Root.Values, // values that are considered tainted
+                Values = values, // values that are considered tainted
                 Secrets = Root.Secrets // all secrets values
             });
 
@@ -662,8 +671,6 @@ namespace GitHub.Runner.Worker {
                     } else {
                         Root.EnvironmentVariables.Add(key, environment.Value);
                     }
-                    
-
                 }
             }
             
