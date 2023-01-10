@@ -12,6 +12,7 @@ namespace GitHub.DistributedTask.Expressions2.Sdk.Functions
             EvaluationContext context,
             out ResultMemory resultMemory)
         {
+            // NOTE: fromJSON function
             resultMemory = null;
             var json = Parameters[0].Evaluate(context).ConvertToString();
             using (var stringReader = new StringReader(json))
