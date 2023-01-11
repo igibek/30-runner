@@ -575,7 +575,7 @@ namespace GitHub.Runner.Worker {
         }
 
         public async Task<int> ExecutePlugin(ActionExecutionType executionType, string path) {
-            ExecutionContext.Output($"##[group]Execute Taint Plugin");
+            ExecutionContext.Output($"##[group]{executionType} Taint Plugin. Path: {path}");
             var inputs = new Dictionary<string, TaintVariable>();
             foreach(var item in Inputs) {
                 if (item.Value.Tainted || item.Value.Secret) {
@@ -626,6 +626,9 @@ namespace GitHub.Runner.Worker {
             });
 
             string pluginName = GetPluginName(executionType);
+            ExecutionContext.Output($"Selected plugin name: {pluginName}");
+            ExecutionContext.Debug($"Input file contents: {contents}");
+
             string workflow = Path.GetFileNameWithoutExtension(WorkflowFilePath);
 
             string inputFileName = TaintFileName.GenerateStepInputFilename(ExecutionContext.GetGitHubContext("run_id"), workflow, ExecutionContext.GetGitHubContext("job"), ExecutionContext.ContextName, ExecutionContext.ScopeName);
@@ -643,7 +646,7 @@ namespace GitHub.Runner.Worker {
             var _invoker = HostContext.CreateService<IProcessInvoker>();
             _invoker.OutputDataReceived += OnDataReceived;
             _invoker.ErrorDataReceived += OnErrorReceived;
-            
+            ExecutionContext.Output($"Executing {Path.Combine(TaintContext.PluginDirectory, pluginName)} with arguments {arguments}");
             var result = await _invoker.ExecuteAsync("", Path.Combine(TaintContext.PluginDirectory, pluginName), arguments,  environments, ExecutionContext.CancellationToken);
             
             if (File.Exists(outputFilePath)) {
